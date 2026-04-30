@@ -28,6 +28,9 @@
 #include <chrono>
 #include <iomanip>
 #include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <cstring>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ws2_32.lib")
@@ -97,6 +100,205 @@ private:
 };
 
 // ====================================================================
+// CRC32 + MD5 helpers (used by BattlEye RCON framing and Steam64→BE-GUID)
+// ====================================================================
+
+static uint32_t Crc32_Table(uint32_t i) {
+    uint32_t c = i;
+    for (int j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+    return c;
+}
+static uint32_t Crc32(const uint8_t* data, size_t len) {
+    static uint32_t table[256];
+    static bool init = false;
+    if (!init) { for (int i = 0; i < 256; i++) table[i] = Crc32_Table((uint32_t)i); init = true; }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+// Tiny MD5 implementation. Public-domain reference (Solar Designer / Alexander
+// Peslyak). Inlined to avoid pulling in OpenSSL/CryptoAPI.
+struct Md5Ctx { uint32_t a,b,c,d; uint32_t lo,hi; uint8_t buffer[64]; uint32_t block[16]; };
+static const uint8_t* md5_body(Md5Ctx* ctx, const uint8_t* data, uint32_t size) {
+    uint32_t a=ctx->a,b=ctx->b,c=ctx->c,d=ctx->d;
+    do {
+        uint32_t saved_a=a, saved_b=b, saved_c=c, saved_d=d;
+        for (int i=0;i<16;i++) ctx->block[i] =
+            (uint32_t)data[i*4] | ((uint32_t)data[i*4+1]<<8) |
+            ((uint32_t)data[i*4+2]<<16) | ((uint32_t)data[i*4+3]<<24);
+#define F(x,y,z) ((z) ^ ((x) & ((y)^(z))))
+#define G(x,y,z) ((y) ^ ((z) & ((x)^(y))))
+#define H(x,y,z) (((x)^(y))^(z))
+#define I(x,y,z) ((y) ^ ((x) | ~(z)))
+#define STEP(f,a,b,c,d,x,t,s) (a) += f((b),(c),(d)) + (x) + (t); (a) = ((a) << (s)) | (((a) & 0xFFFFFFFFu) >> (32-(s))); (a) += (b);
+        STEP(F,a,b,c,d,ctx->block[0],0xd76aa478,7) STEP(F,d,a,b,c,ctx->block[1],0xe8c7b756,12)
+        STEP(F,c,d,a,b,ctx->block[2],0x242070db,17) STEP(F,b,c,d,a,ctx->block[3],0xc1bdceee,22)
+        STEP(F,a,b,c,d,ctx->block[4],0xf57c0faf,7) STEP(F,d,a,b,c,ctx->block[5],0x4787c62a,12)
+        STEP(F,c,d,a,b,ctx->block[6],0xa8304613,17) STEP(F,b,c,d,a,ctx->block[7],0xfd469501,22)
+        STEP(F,a,b,c,d,ctx->block[8],0x698098d8,7) STEP(F,d,a,b,c,ctx->block[9],0x8b44f7af,12)
+        STEP(F,c,d,a,b,ctx->block[10],0xffff5bb1,17) STEP(F,b,c,d,a,ctx->block[11],0x895cd7be,22)
+        STEP(F,a,b,c,d,ctx->block[12],0x6b901122,7) STEP(F,d,a,b,c,ctx->block[13],0xfd987193,12)
+        STEP(F,c,d,a,b,ctx->block[14],0xa679438e,17) STEP(F,b,c,d,a,ctx->block[15],0x49b40821,22)
+        STEP(G,a,b,c,d,ctx->block[1],0xf61e2562,5) STEP(G,d,a,b,c,ctx->block[6],0xc040b340,9)
+        STEP(G,c,d,a,b,ctx->block[11],0x265e5a51,14) STEP(G,b,c,d,a,ctx->block[0],0xe9b6c7aa,20)
+        STEP(G,a,b,c,d,ctx->block[5],0xd62f105d,5) STEP(G,d,a,b,c,ctx->block[10],0x02441453,9)
+        STEP(G,c,d,a,b,ctx->block[15],0xd8a1e681,14) STEP(G,b,c,d,a,ctx->block[4],0xe7d3fbc8,20)
+        STEP(G,a,b,c,d,ctx->block[9],0x21e1cde6,5) STEP(G,d,a,b,c,ctx->block[14],0xc33707d6,9)
+        STEP(G,c,d,a,b,ctx->block[3],0xf4d50d87,14) STEP(G,b,c,d,a,ctx->block[8],0x455a14ed,20)
+        STEP(G,a,b,c,d,ctx->block[13],0xa9e3e905,5) STEP(G,d,a,b,c,ctx->block[2],0xfcefa3f8,9)
+        STEP(G,c,d,a,b,ctx->block[7],0x676f02d9,14) STEP(G,b,c,d,a,ctx->block[12],0x8d2a4c8a,20)
+        STEP(H,a,b,c,d,ctx->block[5],0xfffa3942,4) STEP(H,d,a,b,c,ctx->block[8],0x8771f681,11)
+        STEP(H,c,d,a,b,ctx->block[11],0x6d9d6122,16) STEP(H,b,c,d,a,ctx->block[14],0xfde5380c,23)
+        STEP(H,a,b,c,d,ctx->block[1],0xa4beea44,4) STEP(H,d,a,b,c,ctx->block[4],0x4bdecfa9,11)
+        STEP(H,c,d,a,b,ctx->block[7],0xf6bb4b60,16) STEP(H,b,c,d,a,ctx->block[10],0xbebfbc70,23)
+        STEP(H,a,b,c,d,ctx->block[13],0x289b7ec6,4) STEP(H,d,a,b,c,ctx->block[0],0xeaa127fa,11)
+        STEP(H,c,d,a,b,ctx->block[3],0xd4ef3085,16) STEP(H,b,c,d,a,ctx->block[6],0x04881d05,23)
+        STEP(H,a,b,c,d,ctx->block[9],0xd9d4d039,4) STEP(H,d,a,b,c,ctx->block[12],0xe6db99e5,11)
+        STEP(H,c,d,a,b,ctx->block[15],0x1fa27cf8,16) STEP(H,b,c,d,a,ctx->block[2],0xc4ac5665,23)
+        STEP(I,a,b,c,d,ctx->block[0],0xf4292244,6) STEP(I,d,a,b,c,ctx->block[7],0x432aff97,10)
+        STEP(I,c,d,a,b,ctx->block[14],0xab9423a7,15) STEP(I,b,c,d,a,ctx->block[5],0xfc93a039,21)
+        STEP(I,a,b,c,d,ctx->block[12],0x655b59c3,6) STEP(I,d,a,b,c,ctx->block[3],0x8f0ccc92,10)
+        STEP(I,c,d,a,b,ctx->block[10],0xffeff47d,15) STEP(I,b,c,d,a,ctx->block[1],0x85845dd1,21)
+        STEP(I,a,b,c,d,ctx->block[8],0x6fa87e4f,6) STEP(I,d,a,b,c,ctx->block[15],0xfe2ce6e0,10)
+        STEP(I,c,d,a,b,ctx->block[6],0xa3014314,15) STEP(I,b,c,d,a,ctx->block[13],0x4e0811a1,21)
+        STEP(I,a,b,c,d,ctx->block[4],0xf7537e82,6) STEP(I,d,a,b,c,ctx->block[11],0xbd3af235,10)
+        STEP(I,c,d,a,b,ctx->block[2],0x2ad7d2bb,15) STEP(I,b,c,d,a,ctx->block[9],0xeb86d391,21)
+        a += saved_a; b += saved_b; c += saved_c; d += saved_d;
+        data += 64; size -= 64;
+    } while (size);
+    ctx->a=a;ctx->b=b;ctx->c=c;ctx->d=d; return data;
+#undef F
+#undef G
+#undef H
+#undef I
+#undef STEP
+}
+static void md5_init(Md5Ctx* ctx) {
+    ctx->a=0x67452301;ctx->b=0xefcdab89;ctx->c=0x98badcfe;ctx->d=0x10325476;ctx->lo=0;ctx->hi=0;
+}
+static void md5_update(Md5Ctx* ctx, const uint8_t* data, uint32_t size) {
+    uint32_t saved_lo = ctx->lo;
+    if ((ctx->lo = (saved_lo + size) & 0x1FFFFFFF) < saved_lo) ctx->hi++;
+    ctx->hi += size >> 29;
+    uint32_t used = saved_lo & 0x3F;
+    if (used) {
+        uint32_t available = 64 - used;
+        if (size < available) { memcpy(&ctx->buffer[used], data, size); return; }
+        memcpy(&ctx->buffer[used], data, available);
+        data += available; size -= available;
+        md5_body(ctx, ctx->buffer, 64);
+    }
+    if (size >= 64) { uint32_t whole = size & ~(uint32_t)0x3F; data = md5_body(ctx, data, whole); size &= 0x3F; }
+    memcpy(ctx->buffer, data, size);
+}
+static void md5_final(Md5Ctx* ctx, uint8_t* result) {
+    uint32_t used = ctx->lo & 0x3F;
+    ctx->buffer[used++] = 0x80;
+    uint32_t available = 64 - used;
+    if (available < 8) { memset(&ctx->buffer[used], 0, available); md5_body(ctx, ctx->buffer, 64); used = 0; available = 64; }
+    memset(&ctx->buffer[used], 0, available - 8);
+    ctx->lo <<= 3;
+    ctx->buffer[56] = (uint8_t)ctx->lo; ctx->buffer[57] = (uint8_t)(ctx->lo>>8);
+    ctx->buffer[58] = (uint8_t)(ctx->lo>>16); ctx->buffer[59] = (uint8_t)(ctx->lo>>24);
+    ctx->buffer[60] = (uint8_t)ctx->hi; ctx->buffer[61] = (uint8_t)(ctx->hi>>8);
+    ctx->buffer[62] = (uint8_t)(ctx->hi>>16); ctx->buffer[63] = (uint8_t)(ctx->hi>>24);
+    md5_body(ctx, ctx->buffer, 64);
+    for (int i = 0; i < 4; i++) {
+        uint32_t v = (i==0)?ctx->a:(i==1)?ctx->b:(i==2)?ctx->c:ctx->d;
+        result[i*4]=(uint8_t)v; result[i*4+1]=(uint8_t)(v>>8);
+        result[i*4+2]=(uint8_t)(v>>16); result[i*4+3]=(uint8_t)(v>>24);
+    }
+}
+
+// Compute the BattlEye GUID for a Steam64 ID.
+// BE GUID = MD5("BE" + steam64 as 8 little-endian bytes), lowercase hex.
+static std::string SteamIdToBeGuid(const std::string& steam64) {
+    if (steam64.empty()) return "";
+    uint64_t s = 0;
+    for (char c : steam64) {
+        if (c < '0' || c > '9') return "";
+        s = s * 10 + (uint64_t)(c - '0');
+    }
+    uint8_t buf[10] = { 'B', 'E',
+        (uint8_t)s, (uint8_t)(s>>8), (uint8_t)(s>>16), (uint8_t)(s>>24),
+        (uint8_t)(s>>32), (uint8_t)(s>>40), (uint8_t)(s>>48), (uint8_t)(s>>56) };
+    Md5Ctx ctx; md5_init(&ctx); md5_update(&ctx, buf, 10);
+    uint8_t digest[16]; md5_final(&ctx, digest);
+    std::string hex; hex.reserve(32);
+    static const char* h = "0123456789abcdef";
+    for (int i = 0; i < 16; i++) { hex += h[digest[i] >> 4]; hex += h[digest[i] & 0xF]; }
+    return hex;
+}
+
+// ====================================================================
+// BattlEye RCON client
+// ====================================================================
+//
+// Spec: https://www.battleye.com/downloads/BERConProtocol.txt
+// Framing (every packet, both directions):
+//     'B' 'E'  <CRC32:LE 4>  0xFF  <type:1>  <payload...>
+// CRC covers from 0xFF onward (i.e. type + payload).
+//
+// Types:
+//   0x00 = login. Client: <password>. Server: 0x01 success / 0x00 fail.
+//   0x01 = command. Client: <seq:1> <command-ascii>. Empty command = keepalive.
+//          Server: <seq:1> <ascii>  OR  <seq:1> 0x00 <total:1> <index:1> <chunk>
+//   0x02 = server-pushed message. Server: <seq:1> <ascii>. Client MUST ack
+//          with <seq:1> (no payload) or it'll get disconnected.
+//
+// Idle timeout ~45s — we send empty command every 30s.
+
+struct BeRconConfig {
+    std::string host = "127.0.0.1";
+    int port = 2306;
+    std::string password;
+};
+
+class BeRcon {
+public:
+    BeRcon(TakaroDayZ* parent, const BeRconConfig& cfg) : m_parent(parent), m_cfg(cfg) {}
+    void Start();
+    void Stop();
+    bool LoggedIn() const { return m_loggedIn.load(); }
+
+    // Fire-and-forget command. Returns the seq number used.
+    uint8_t SendAsync(const std::string& cmd);
+    // Synchronous: blocks up to timeoutMs for the response. Returns "" on timeout.
+    std::string SendSync(const std::string& cmd, int timeoutMs = 5000);
+
+    // Setter for server-pushed message callback (chat, join/leave from BE).
+    std::function<void(const std::string&)> onServerMessage;
+
+private:
+    void RunLoop();
+    void KeepaliveLoop();
+    bool DoLogin();
+    void SendPacket(uint8_t type, const std::vector<uint8_t>& payload);
+    void HandlePacket(const uint8_t* data, int len);
+
+    TakaroDayZ* m_parent;
+    BeRconConfig m_cfg;
+    SOCKET m_sock = INVALID_SOCKET;
+    std::atomic<bool> m_running{false};
+    std::atomic<bool> m_loggedIn{false};
+    std::atomic<uint8_t> m_nextSeq{0};
+    std::thread m_recvThread;
+    std::thread m_keepaliveThread;
+
+    // Fragment reassembly: seq -> (total, map<index,chunk>)
+    struct Partial { uint8_t total = 0; std::map<uint8_t, std::string> chunks; };
+    std::map<uint8_t, Partial> m_partials;
+
+    // Pending sync waiter
+    std::mutex m_waitMutex;
+    std::condition_variable m_waitCv;
+    int m_waitSeq = -1;            // -1 = no waiter
+    std::string m_waitResponse;
+    std::atomic<bool> m_waitDone{false};
+};
+
+// ====================================================================
 // Main integration class
 // ====================================================================
 
@@ -137,8 +339,11 @@ private:
     std::mutex logMutex;
 
     LocalHttpServer* localServer = nullptr;
+    BeRcon* beRcon = nullptr;
+    std::string beServerCfgPath = "battleye\\beserver_x64.cfg";
 
     void LoadConfig();
+    bool LoadBeRconConfig(BeRconConfig& out);
     void CloseHandles();
     bool ConnectToTakaro();
     void SendRaw(const std::string& msg);
@@ -152,9 +357,16 @@ private:
     void HandleTestReachability(const std::string& requestId);
     void HandleListEmpty(const std::string& requestId);  // for listItems/listEntities/etc.
 
+    // BE RCON–backed handlers
+    void HandleExecConsoleCommandRcon(const std::string& requestId, const std::string& argsJson);
+    void HandleSendMessageRcon(const std::string& requestId, const std::string& argsJson);
+
     // For non-builtin actions, hand off to the script mod.
     void QueueForScriptMod(const std::string& requestId, const std::string& action,
                            const std::string& argsJson);
+
+    // Helper: pull a JSON string-field out of a small object.
+    static std::string ExtractStringField(const std::string& json, const std::string& field);
 };
 
 // ====================================================================
@@ -435,6 +647,186 @@ void LocalHttpServer::HandleClient(SOCKET client) {
 }
 
 // ====================================================================
+// BeRcon impl
+// ====================================================================
+
+void BeRcon::Start() {
+    m_running = true;
+    m_recvThread = std::thread(&BeRcon::RunLoop, this);
+    m_keepaliveThread = std::thread(&BeRcon::KeepaliveLoop, this);
+}
+
+void BeRcon::Stop() {
+    m_running = false;
+    m_loggedIn = false;
+    if (m_sock != INVALID_SOCKET) { closesocket(m_sock); m_sock = INVALID_SOCKET; }
+    if (m_recvThread.joinable()) m_recvThread.join();
+    if (m_keepaliveThread.joinable()) m_keepaliveThread.join();
+}
+
+void BeRcon::SendPacket(uint8_t type, const std::vector<uint8_t>& payload) {
+    if (m_sock == INVALID_SOCKET) return;
+    // CRC covers 0xFF + type + payload
+    std::vector<uint8_t> crcRegion;
+    crcRegion.reserve(payload.size() + 2);
+    crcRegion.push_back(0xFF);
+    crcRegion.push_back(type);
+    crcRegion.insert(crcRegion.end(), payload.begin(), payload.end());
+    uint32_t crc = Crc32(crcRegion.data(), crcRegion.size());
+    std::vector<uint8_t> packet;
+    packet.reserve(crcRegion.size() + 6);
+    packet.push_back('B'); packet.push_back('E');
+    packet.push_back((uint8_t)crc); packet.push_back((uint8_t)(crc>>8));
+    packet.push_back((uint8_t)(crc>>16)); packet.push_back((uint8_t)(crc>>24));
+    packet.insert(packet.end(), crcRegion.begin(), crcRegion.end());
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((u_short)m_cfg.port);
+    inet_pton(AF_INET, m_cfg.host.c_str(), &addr.sin_addr);
+    sendto(m_sock, (const char*)packet.data(), (int)packet.size(), 0, (sockaddr*)&addr, sizeof(addr));
+}
+
+bool BeRcon::DoLogin() {
+    std::vector<uint8_t> p(m_cfg.password.begin(), m_cfg.password.end());
+    SendPacket(0x00, p);
+    return true;
+}
+
+uint8_t BeRcon::SendAsync(const std::string& cmd) {
+    uint8_t seq = m_nextSeq.fetch_add(1);
+    std::vector<uint8_t> p;
+    p.push_back(seq);
+    p.insert(p.end(), cmd.begin(), cmd.end());
+    SendPacket(0x01, p);
+    return seq;
+}
+
+std::string BeRcon::SendSync(const std::string& cmd, int timeoutMs) {
+    if (!m_loggedIn) return "";
+    std::unique_lock<std::mutex> lk(m_waitMutex);
+    uint8_t seq = m_nextSeq.fetch_add(1);
+    m_waitSeq = (int)seq;
+    m_waitResponse.clear();
+    m_waitDone = false;
+    std::vector<uint8_t> p;
+    p.push_back(seq);
+    p.insert(p.end(), cmd.begin(), cmd.end());
+    SendPacket(0x01, p);
+    m_waitCv.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&]{ return m_waitDone.load(); });
+    std::string out = m_waitResponse;
+    m_waitSeq = -1;
+    return out;
+}
+
+void BeRcon::HandlePacket(const uint8_t* data, int len) {
+    if (len < 8) return;
+    if (data[0] != 'B' || data[1] != 'E') return;
+    if (data[6] != 0xFF) return;
+    uint8_t type = data[7];
+    const uint8_t* payload = data + 8;
+    int paylen = len - 8;
+
+    if (type == 0x00) {
+        // Login response: 1 byte
+        if (paylen >= 1) {
+            if (payload[0] == 0x01) {
+                m_loggedIn = true;
+                m_parent->Log("[Takaro][RCON] login OK");
+            } else {
+                m_parent->Log("[Takaro][RCON] login REJECTED (bad password?)");
+            }
+        }
+    } else if (type == 0x01) {
+        // Command response.
+        if (paylen < 1) return;
+        uint8_t seq = payload[0];
+        // Multi-packet sub-header?
+        if (paylen >= 4 && payload[1] == 0x00) {
+            uint8_t total = payload[2];
+            uint8_t index = payload[3];
+            std::string chunk((const char*)(payload + 4), paylen - 4);
+            Partial& p = m_partials[seq];
+            p.total = total;
+            p.chunks[index] = chunk;
+            if ((uint8_t)p.chunks.size() == total) {
+                std::string full;
+                for (uint8_t i = 0; i < total; i++) full += p.chunks[i];
+                m_partials.erase(seq);
+                std::lock_guard<std::mutex> g(m_waitMutex);
+                if (m_waitSeq == (int)seq) {
+                    m_waitResponse = full;
+                    m_waitDone = true;
+                    m_waitCv.notify_all();
+                }
+            }
+            return;
+        }
+        // Single-packet response
+        std::string body((const char*)(payload + 1), paylen - 1);
+        std::lock_guard<std::mutex> g(m_waitMutex);
+        if (m_waitSeq == (int)seq) {
+            m_waitResponse = body;
+            m_waitDone = true;
+            m_waitCv.notify_all();
+        }
+    } else if (type == 0x02) {
+        // Server-pushed message — ack first, process second.
+        if (paylen < 1) return;
+        uint8_t seq = payload[0];
+        std::vector<uint8_t> ack; ack.push_back(seq);
+        SendPacket(0x02, ack);
+        std::string body((const char*)(payload + 1), paylen - 1);
+        if (onServerMessage) onServerMessage(body);
+    }
+}
+
+void BeRcon::RunLoop() {
+    int retryDelay = 2000;
+    while (m_running) {
+        if (m_sock == INVALID_SOCKET) {
+            m_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            if (m_sock == INVALID_SOCKET) { Sleep(retryDelay); continue; }
+            // 5s recv timeout so we can poll m_running
+            DWORD timeout = 5000;
+            setsockopt(m_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+            DoLogin();
+        }
+        uint8_t buf[4096];
+        sockaddr_in from{}; int fromLen = sizeof(from);
+        int n = recvfrom(m_sock, (char*)buf, sizeof(buf), 0, (sockaddr*)&from, &fromLen);
+        if (n > 0) {
+            HandlePacket(buf, n);
+        } else {
+            int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT) {
+                // No data — that's fine, just keepalive will run
+            } else if (err == WSAEMSGSIZE) {
+                // Truncated, ignore this packet
+            } else {
+                m_parent->Log("[Takaro][RCON] recv error " + std::to_string(err) + " — reconnecting");
+                if (m_sock != INVALID_SOCKET) { closesocket(m_sock); m_sock = INVALID_SOCKET; }
+                m_loggedIn = false;
+                Sleep(retryDelay);
+            }
+        }
+    }
+}
+
+void BeRcon::KeepaliveLoop() {
+    int counter = 0;
+    while (m_running) {
+        Sleep(1000);
+        if (!m_loggedIn) continue;
+        counter++;
+        if (counter >= 30) {
+            counter = 0;
+            // Empty command = keepalive
+            SendAsync("");
+        }
+    }
+}
+
+// ====================================================================
 // TakaroDayZ impl
 // ====================================================================
 
@@ -465,8 +857,50 @@ void TakaroDayZ::LoadConfig() {
         else if (k == "serverName") serverName = v;
         else if (k == "identityToken") identityToken = v;
         else if (k == "localPort") localPort = atoi(v.c_str());
+        else if (k == "beServerCfgPath") beServerCfgPath = v;
     }
     if (identityToken.empty()) identityToken = serverName;
+}
+
+bool TakaroDayZ::LoadBeRconConfig(BeRconConfig& out) {
+    std::ifstream f(beServerCfgPath);
+    if (!f.is_open()) {
+        Log("[Takaro][RCON] beserver_x64.cfg not found at " + beServerCfgPath + " — RCON disabled");
+        return false;
+    }
+    std::string line;
+    while (std::getline(f, line)) {
+        // BE config is space-delimited: "RConPassword foo", "RConPort 2306"
+        // Strip CR and skip comments (//) and empty lines
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        size_t p = line.find_first_not_of(" \t");
+        if (p == std::string::npos) continue;
+        if (line.substr(p, 2) == "//") continue;
+        size_t sp = line.find_first_of(" \t", p);
+        if (sp == std::string::npos) continue;
+        std::string key = line.substr(p, sp - p);
+        size_t v = line.find_first_not_of(" \t", sp);
+        if (v == std::string::npos) continue;
+        std::string val = line.substr(v);
+        while (!val.empty() && (val.back() == ' ' || val.back() == '\t')) val.pop_back();
+        if (key == "RConPassword") out.password = val;
+        else if (key == "RConPort") out.port = atoi(val.c_str());
+        else if (key == "RConIP") out.host = val;
+    }
+    if (out.password.empty()) {
+        Log("[Takaro][RCON] beserver_x64.cfg has no RConPassword — RCON disabled");
+        return false;
+    }
+    return true;
+}
+
+std::string TakaroDayZ::ExtractStringField(const std::string& json, const std::string& field) {
+    std::string s = "\"" + field + "\":\"";
+    size_t p = json.find(s);
+    if (p == std::string::npos) return "";
+    p += s.length();
+    size_t e = json.find("\"", p);
+    return e == std::string::npos ? "" : json.substr(p, e - p);
 }
 
 void TakaroDayZ::CloseHandles() {
@@ -626,6 +1060,66 @@ void TakaroDayZ::HandleListEmpty(const std::string& requestId) {
     SendRaw(msg);
 }
 
+void TakaroDayZ::HandleExecConsoleCommandRcon(const std::string& requestId, const std::string& argsJson) {
+    std::string command = ExtractStringField(argsJson, "command");
+    if (command.empty()) {
+        // Send back failure
+        std::string payload = "{\"rawResult\":\"\",\"success\":false,\"errorMessage\":\"empty command\"}";
+        std::string msg = SimpleJSON::object(
+            SimpleJSON::pair("type","response") + "," +
+            SimpleJSON::pair("requestId", requestId) + "," +
+            "\"payload\":" + payload);
+        SendRaw(msg);
+        return;
+    }
+    std::string raw;
+    if (beRcon && beRcon->LoggedIn()) {
+        raw = beRcon->SendSync(command, 5000);
+    }
+    std::string payload = SimpleJSON::object(
+        SimpleJSON::pair("rawResult", raw) + ",\"success\":true"
+    );
+    std::string msg = SimpleJSON::object(
+        SimpleJSON::pair("type","response") + "," +
+        SimpleJSON::pair("requestId", requestId) + "," +
+        "\"payload\":" + payload
+    );
+    SendRaw(msg);
+    Log("[Takaro][RCON] exec '" + command + "' -> " +
+        (raw.empty() ? "(empty)" : raw.substr(0, 80)));
+}
+
+void TakaroDayZ::HandleSendMessageRcon(const std::string& requestId, const std::string& argsJson) {
+    std::string text = ExtractStringField(argsJson, "message");
+    std::string recipient = ExtractStringField(argsJson, "recipientGameId");
+    if (text.empty()) {
+        std::string msg = SimpleJSON::object(
+            SimpleJSON::pair("type","response") + "," +
+            SimpleJSON::pair("requestId", requestId) + ",\"payload\":{}");
+        SendRaw(msg);
+        return;
+    }
+    if (!beRcon || !beRcon->LoggedIn()) {
+        // Fall back to script mod (which uses native broadcast).
+        QueueForScriptMod(requestId, "sendMessage", argsJson);
+        return;
+    }
+    // BE syntax: "say -1 <text>" for global broadcast. Per-player whisper via
+    // slot number is possible but requires looking up the slot from the BE GUID,
+    // which we don't have in v1 — fall back to script mod for whispers.
+    if (!recipient.empty()) {
+        QueueForScriptMod(requestId, "sendMessage", argsJson);
+        return;
+    }
+    std::string cmd = "say -1 " + text;
+    beRcon->SendAsync(cmd);
+    std::string msg = SimpleJSON::object(
+        SimpleJSON::pair("type","response") + "," +
+        SimpleJSON::pair("requestId", requestId) + ",\"payload\":{}");
+    SendRaw(msg);
+    Log("[Takaro][RCON] say -1 " + text);
+}
+
 void TakaroDayZ::QueueForScriptMod(const std::string& requestId, const std::string& action,
                                     const std::string& argsJson) {
     PendingOperation op;
@@ -665,8 +1159,7 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
         HandleListEmpty(requestId); return;
     }
 
-    // Everything else: hand off to script mod via the local HTTP queue.
-    // Extract argsJson — find "args": value (could be string or object).
+    // Extract argsJson early so RCON handlers can use it.
     std::string argsJson;
     {
         size_t p = m.find("\"args\":");
@@ -674,23 +1167,19 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
             p += 7;
             while (p < m.size() && m[p] == ' ') p++;
             if (p < m.size() && m[p] == '"') {
-                // String form: args is a quoted JSON string
                 size_t e = p + 1;
                 while (e < m.size() && m[e] != '"') {
                     if (m[e] == '\\' && e + 1 < m.size()) e++;
                     e++;
                 }
                 argsJson = m.substr(p + 1, e - p - 1);
-                // Unescape backslash-quote and backslash-backslash sequences.
                 std::string un;
                 for (size_t i = 0; i < argsJson.size(); i++) {
-                    if (argsJson[i] == '\\' && i + 1 < argsJson.size()) {
-                        un += argsJson[i + 1]; i++;
-                    } else un += argsJson[i];
+                    if (argsJson[i] == '\\' && i + 1 < argsJson.size()) { un += argsJson[i + 1]; i++; }
+                    else un += argsJson[i];
                 }
                 argsJson = un;
             } else if (p < m.size() && m[p] == '{') {
-                // Object form
                 int d = 0; size_t e = p;
                 while (e < m.size()) {
                     if (m[e] == '{') d++;
@@ -701,6 +1190,16 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
             }
         }
     }
+
+    // BE-RCON-backed handlers (when RCON is up):
+    if (action == "executeConsoleCommand") {
+        if (beRcon && beRcon->LoggedIn()) { HandleExecConsoleCommandRcon(requestId, argsJson); return; }
+    }
+    if (action == "sendMessage") {
+        if (beRcon && beRcon->LoggedIn()) { HandleSendMessageRcon(requestId, argsJson); return; }
+    }
+
+    // Everything else: hand off to script mod via the local HTTP queue.
     QueueForScriptMod(requestId, action, argsJson);
 }
 
@@ -763,6 +1262,15 @@ void TakaroDayZ::Start() {
     localServer = new LocalHttpServer(this, localPort);
     localServer->Start();
     wsThread = std::thread(&TakaroDayZ::WebSocketThread, this);
+
+    // BattlEye RCON — optional. Read beserver_x64.cfg for password+port.
+    BeRconConfig beCfg;
+    if (LoadBeRconConfig(beCfg)) {
+        Log("[Takaro][RCON] using " + beCfg.host + ":" + std::to_string(beCfg.port));
+        beRcon = new BeRcon(this, beCfg);
+        beRcon->Start();
+    }
+
     Log("[Takaro] threads started");
 }
 
@@ -770,6 +1278,11 @@ void TakaroDayZ::Stop() {
     running = false;
     connected = false;
     CloseHandles();
+    if (beRcon) {
+        beRcon->Stop();
+        delete beRcon;
+        beRcon = nullptr;
+    }
     if (localServer) {
         localServer->Stop();
         delete localServer;
