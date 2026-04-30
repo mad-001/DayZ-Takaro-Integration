@@ -1,6 +1,19 @@
 # DayZ ↔ Takaro Integration
 
-A **server-side-only** DayZ mod that connects a modded DayZ server to the [Takaro](https://takaro.io) game-server-management platform. Players do **not** need to download anything to join — the mod is loaded with `-serverMod=`, so it lives entirely on the server.
+A **server-side-only** DayZ mod (loaded with `-serverMod=`, so clients never download it) plus a tiny Node.js bridge sidecar that connects to [Takaro](https://takaro.io).
+
+```
+DayZ Server                                 Sidecar                Takaro
+┌────────────────────────────┐  ┌──────────────────────────┐  ┌──────────────────────┐
+│ @TakaroIntegration mod     │  │ DayZ-Bridge (Node.js)    │  │ wss://connect…       │
+│  - emits player events     │  │  - WS client (identify   │  │                      │
+│  - dispatches operations   │──HTTP→ → gameEvent / req)   │──WS→                   │
+│  - HTTP via RestApi        │←HTTP─ │ - HTTP server local- │←─WS─                   │
+│                            │  │    only :8088 for mod    │  │                      │
+└────────────────────────────┘  └──────────────────────────┘  └──────────────────────┘
+```
+
+The sidecar exists because DayZ Enforce Script's `RestApi`/`RestContext` is HTTP-only — Takaro's gameserver protocol is WebSocket-only. The bridge translates between the two and applies the per-action shape coercions Enforce Script's JsonSerializer needs (bools-as-ints, wrapped-array results).
 
 ## What it does
 
@@ -19,17 +32,18 @@ A **server-side-only** DayZ mod that connects a modded DayZ server to the [Takar
 
 ## Status
 
-| Feature | State |
+| Component | State |
 | --- | --- |
-| Mod scaffold + PBO build with no DayZ Tools (custom Python packer) | **verified** on DayZ 1.29 |
-| Mod loads under `-serverMod=` and registers `TakaroIntegration` define | **verified** |
-| Bridge initializes, writes default `config.json`, reads/saves on update | **verified** |
-| Registration POST → identity token + gameServerId persisted | **verified against mock Takaro** |
-| Operation poll → dispatch → result POST cycle | **verified** for `listPlayers`, `testReachability`, `sendMessage`, `unknownAction` (error path) |
-| In-game broadcast on `sendMessage` | **verified** (RPT shows `BROADCAST: Hello from Takaro!`) |
-| Player connect/disconnect/death events (engine hooks) | **wired**, untested without a connecting client |
+| Mod PBO build (no DayZ Tools required — bundled Python packer) | **verified** on DayZ 1.29 |
+| Mod loads via `-serverMod=`, registers `TakaroIntegration` script-module define | **verified** |
+| Bridge connects to `wss://connect.takaro.io/`, identifies, gets gameServerId | **verified** against real Takaro |
+| Mod ↔ Bridge HTTP cycle (register / events / poll / operation result) | **verified** |
+| Per-action shape coercion (bools-as-ints, wrapped arrays) in bridge | **verified** |
+| Outbound `gameEvent` push to Takaro | **verified** (bridge forwarded synthetic player-connected without rejection) |
+| Operation handlers: testReachability, getPlayers, getPlayer, getPlayerLocation, sendMessage, kickPlayer, banPlayer (kick fallback), teleportPlayer, giveItem, executeConsoleCommand (`say` only) | **wired** |
+| Player connect/disconnect/death engine hooks | **wired**, untested without a real connecting client |
 | Chat capture | scaffolded — needs CF or VPP compat addon to bind real hook (see [docs/EVENT_MAPPING.md](docs/EVENT_MAPPING.md)) |
-| Ban API | partial — falls back to kick; needs VPP integration for real ban list write |
+| Ban list writeback | falls back to kick; needs VPP compat addon for real ban list write |
 
 ## Repo layout
 
@@ -59,6 +73,15 @@ scripts/
 ```
 
 ## Quick start
+
+**Stack (in launch order):**
+
+1. **DayZ-Bridge** sidecar — `cd DayZ-Bridge && npm install && npm run build`. Copy `TakaroConfig.example.txt` → `TakaroConfig.txt` and paste your registration token from the Takaro dashboard. Run with `node dist/index.js` (or `start.bat` on Windows). Bridge listens on `127.0.0.1:8088` and connects to Takaro WSS.
+2. **DayZ server** with `-serverMod="@TakaroIntegration"`. The mod's `profiles/TakaroIntegration/config.json` should have `TakaroApiUrl=http://localhost:8088`.
+
+That's it — the mod registers via the bridge, the bridge identifies with Takaro, and the server appears as online in the dashboard.
+
+### Mod build paths
 
 You have two build paths:
 
