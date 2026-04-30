@@ -51,6 +51,53 @@ modded class MissionServer
         super.InvokeOnDisconnect(player);
     }
 
+    // Vanilla chat hook. Server-side OnEvent fires for ChatMessageEventTypeID
+    // when a player sends chat (any channel). param1=channel, param2=name,
+    // param3=text, param4=color tag.
+    override void OnEvent(EventType eventTypeId, Param params)
+    {
+        super.OnEvent(eventTypeId, params);
+        if (eventTypeId != ChatMessageEventTypeID) return;
+        if (!m_TakaroBridge) return;
+
+        ChatMessageEventParams cm = ChatMessageEventParams.Cast(params);
+        if (!cm) return;
+        string channelName = ChannelToString(cm.param1);
+        string senderName = cm.param2;
+        string text = cm.param3;
+        if (text == "") return;
+
+        // Find sender's PlayerIdentity by name (vanilla chat event doesn't
+        // give us the identity directly).
+        PlayerIdentity sender = FindIdentityByName(senderName);
+        if (sender)
+            m_TakaroBridge.OnChatMessage(sender, channelName, text);
+    }
+
+    private string ChannelToString(int channel)
+    {
+        // CCDirect=0, CCGlobal=1, CCSystem=2, CCAdmin=3, CCRadio=4, CCTransmitter=5
+        if (channel == 0) return "direct";
+        if (channel == 1) return "global";
+        if (channel == 3) return "admin";
+        if (channel == 4) return "radio";
+        return "global";
+    }
+
+    private PlayerIdentity FindIdentityByName(string name)
+    {
+        array<Man> all = new array<Man>;
+        GetGame().GetPlayers(all);
+        for (int i = 0; i < all.Count(); i++)
+        {
+            PlayerBase pb = PlayerBase.Cast(all[i]);
+            if (!pb) continue;
+            PlayerIdentity id = pb.GetIdentity();
+            if (id && id.GetName() == name) return id;
+        }
+        return null;
+    }
+
     // Helper accessor so other modules can route events into the bridge.
     static TakaroBridge GetTakaroBridge()
     {

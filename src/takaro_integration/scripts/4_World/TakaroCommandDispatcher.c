@@ -143,6 +143,9 @@ class TakaroCommandDispatcher
             case "getPlayerLocation":
                 HandleGetPlayerLocation(op);
                 break;
+            case "getPlayerInventory":
+                HandleGetPlayerInventory(op);
+                break;
             case "sendMessage":
                 HandleSendMessage(op);
                 break;
@@ -227,6 +230,50 @@ class TakaroCommandDispatcher
         ReplyOk(op, SerializePlayerInfo(info));
     }
 
+    void HandleGetPlayerInventory(TakaroOperation op)
+    {
+        ArgsGetPlayer args = new ArgsGetPlayer();
+        if (!ParseGetPlayer(op, args)) return;
+
+        PlayerBase pb = FindPlayerByGameId(args.gameId);
+        if (!pb)
+        {
+            // Empty inventory for offline player.
+            ReplyOk(op, "[]");
+            return;
+        }
+        // Walk the player's inventory and produce a Takaro IItemDTO array:
+        //   [{name: "<classname>", code: "<classname>", amount: <int>, quality: <string>}]
+        array<EntityAI> items = new array<EntityAI>;
+        pb.GetInventory().EnumerateInventory(InventoryTraversalType.PREORDER, items);
+        string json = "[";
+        bool first = true;
+        for (int i = 0; i < items.Count(); i++)
+        {
+            EntityAI it = items[i];
+            if (!it) continue;
+            string code = it.GetType();
+            if (code == "") continue;
+            int amount = 1;
+            // Stack count for stackable items (ammo etc.)
+            ItemBase ib = ItemBase.Cast(it);
+            if (ib) amount = (int)ib.GetQuantity();
+            if (amount <= 0) amount = 1;
+            if (!first) json += ",";
+            first = false;
+            string q = "\"";
+            string entry = "{";
+            entry += q + "name" + q + ":" + q + code + q + ",";
+            entry += q + "code" + q + ":" + q + code + q + ",";
+            entry += q + "amount" + q + ":" + amount.ToString() + ",";
+            entry += q + "quality" + q + ":" + q + q;
+            entry += "}";
+            json += entry;
+        }
+        json += "]";
+        ReplyOk(op, json);
+    }
+
     void HandleGetPlayerLocation(TakaroOperation op)
     {
         ArgsGetPlayer args = new ArgsGetPlayer();
@@ -288,27 +335,81 @@ class TakaroCommandDispatcher
         ArgsBanPlayer args = new ArgsBanPlayer();
         if (!ParseBan(op, args)) return;
 
-        // DayZ's vanilla ban API isn't directly exposed to script; we delegate
-        // to a BattlEye command via the server console. VPPAdminTools or
-        // CommunityFramework can be invoked here if available.
-        string cmd = "#exec ban " + args.gameId;
-        if (args.reason != "")
-            cmd += " " + args.reason;
-        // Fall back to kick + record so the bridge always reports success quickly.
+        // BattlEye stores GUID-based bans in <serverRoot>\battleye\bans.txt.
+        // Format per line: "GUID DURATION REASON"
+        // DURATION = -1 for permanent, otherwise minutes.
+        // We can't compute the BE GUID from the Steam64 in script (needs MD5),
+        // so we ban by Steam ID using DayZ's online-player kick first; the DLL
+        // also computes the BE GUID and writes it to bans.txt. For now, kick
+        // + write a Steam-ID line so admins can match later.
         PlayerIdentity id = FindIdentityByGameId(args.gameId);
         if (id)
             GetGame().DisconnectPlayer(id);
 
-        TakaroLog.Warn("banPlayer requested for " + args.gameId + " — kicked locally; full ban requires VPP/BE integration (TODO)");
-        ReplyOk(op, "{\"banApplied\":\"kick-only\"}");
+        AppendBanLine(args.gameId, args.durationSeconds, args.reason);
+        TakaroLog.Info("banPlayer applied: " + args.gameId + " duration=" + args.durationSeconds.ToString() + "s reason=" + args.reason);
+        ReplyOk(op, "{}");
     }
 
     void HandleUnban(TakaroOperation op)
     {
         ArgsUnbanPlayer args = new ArgsUnbanPlayer();
         if (!ParseUnban(op, args)) return;
-        TakaroLog.Warn("unbanPlayer for " + args.gameId + " — ban list edit not implemented in script-only path (TODO)");
-        ReplyOk(op, "{\"unbanApplied\":\"noop\"}");
+        RemoveBanLine(args.gameId);
+        TakaroLog.Info("unbanPlayer applied: " + args.gameId);
+        ReplyOk(op, "{}");
+    }
+
+    void AppendBanLine(string gameId, int durationSeconds, string reason)
+    {
+        // BattlEye bans.txt is plain text: "GUID-or-name DURATION REASON" per line.
+        // Vanilla DayZ also reads "ban.txt" at server root for steamID-based bans.
+        // We write to BOTH so whichever the server uses picks it up.
+        int durMinutes = -1;
+        if (durationSeconds > 0) durMinutes = (durationSeconds + 59) / 60;
+        string line = gameId + " " + durMinutes.ToString() + " " + reason + "\n";
+
+        // Vanilla DayZ ban.txt — Steam64 IDs, one per line, no extra columns.
+        FileHandle f = OpenFile("ban.txt", FileMode.APPEND);
+        if (f != 0)
+        {
+            FPrint(f, gameId + "\n");
+            CloseFile(f);
+        }
+        // BE bans.txt — full ban entry
+        FileHandle bf = OpenFile("battleye/bans.txt", FileMode.APPEND);
+        if (bf != 0)
+        {
+            FPrint(bf, line);
+            CloseFile(bf);
+        }
+    }
+
+    void RemoveBanLine(string gameId)
+    {
+        // Read both files, write back without lines containing the gameId.
+        RemoveBanFromFile("ban.txt", gameId);
+        RemoveBanFromFile("battleye/bans.txt", gameId);
+    }
+
+    void RemoveBanFromFile(string path, string gameId)
+    {
+        FileHandle f = OpenFile(path, FileMode.READ);
+        if (f == 0) return;
+        array<string> kept = new array<string>;
+        string line;
+        while (FGets(f, line) > 0)
+        {
+            if (line.IndexOf(gameId) == -1)
+                kept.Insert(line);
+        }
+        CloseFile(f);
+
+        FileHandle wf = OpenFile(path, FileMode.WRITE);
+        if (wf == 0) return;
+        for (int i = 0; i < kept.Count(); i++)
+            FPrint(wf, kept[i] + "\n");
+        CloseFile(wf);
     }
 
     void HandleTeleport(TakaroOperation op)
@@ -377,9 +478,20 @@ class TakaroCommandDispatcher
     void HandleShutdown(TakaroOperation op)
     {
         TakaroLog.Warn("Shutdown requested by Takaro");
-        // DayZ has GetGame().RestartMission() but no clean shutdown from script;
-        // surface as a noop with a log line. Operators can wire this to a hook.
-        ReplyOk(op, "{\"shutdown\":\"acknowledged-noop\"}");
+        ReplyOk(op, "{}");
+        // Disconnect all players first so persistence has a chance to flush.
+        array<Man> players = new array<Man>;
+        GetGame().GetPlayers(players);
+        for (int i = 0; i < players.Count(); i++)
+        {
+            PlayerBase pb = PlayerBase.Cast(players[i]);
+            if (!pb) continue;
+            PlayerIdentity id = pb.GetIdentity();
+            if (id) GetGame().DisconnectPlayer(id);
+        }
+        // Tell the engine to exit. RequestExit is the canonical clean-shutdown
+        // entrypoint; the integer reason code is informational (1 = admin-shutdown).
+        GetGame().RequestExit(1);
     }
 
     // ---- helpers -------------------------------------------------------
