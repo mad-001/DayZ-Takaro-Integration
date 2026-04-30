@@ -1,31 +1,21 @@
-# Build output
 @TakaroIntegration/Addons/*.pbo
-@TakaroIntegration/Addons/*.bisign
-*.pbo
+@TakaroIntegration_Expansion/Addons/*.pbo
+node_modules/
+dist/
+
+# Local config + secrets
+DayZ-Bridge/TakaroConfig.txt
+DayZ-DLL/takaro_config.txt
+*.bisign
 *.bikey
 *.biprivatekey
-
-# Workshop staging
-*.staging/
 
 # OS junk
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Editor / IDE
+# IDE
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
-
-# Local config / secrets
-config.json
-TakaroConfig.json
-profiles/
-
-# Temp
-*.tmp
-*.bak
-*.log
