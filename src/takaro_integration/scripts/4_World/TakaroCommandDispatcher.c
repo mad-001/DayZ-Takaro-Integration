@@ -140,6 +140,9 @@ class TakaroCommandDispatcher
             case "getPlayer":
                 HandleGetPlayer(op);
                 break;
+            case "getPlayerLocation":
+                HandleGetPlayerLocation(op);
+                break;
             case "sendMessage":
                 HandleSendMessage(op);
                 break;
@@ -222,6 +225,24 @@ class TakaroCommandDispatcher
         info.ping = id.GetPingAct();
         info.online = true;
         ReplyOk(op, SerializePlayerInfo(info));
+    }
+
+    void HandleGetPlayerLocation(TakaroOperation op)
+    {
+        ArgsGetPlayer args = new ArgsGetPlayer();
+        if (!ParseGetPlayer(op, args)) return;
+
+        PlayerBase pb = FindPlayerByGameId(args.gameId);
+        if (!pb)
+        {
+            // Per Takaro contract, returning null is valid for "player not online".
+            ReplyOk(op, "null");
+            return;
+        }
+        vector pos = pb.GetPosition();
+        // Build IPosition manually so we don't risk float-as-int rendering.
+        string json = "{\"x\":" + pos[0].ToString() + ",\"y\":" + pos[1].ToString() + ",\"z\":" + pos[2].ToString() + "}";
+        ReplyOk(op, json);
     }
 
     void HandleSendMessage(TakaroOperation op)
