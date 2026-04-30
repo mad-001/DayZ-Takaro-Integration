@@ -178,7 +178,7 @@ class TakaroCommandDispatcher
         ResultReachability r = new ResultReachability();
         r.connectable = true;
         r.reason = "";
-        ReplyOk(op, JsonSerialize(r));
+        ReplyOk(op, SerializeReachability(r));
     }
 
     void HandleListPlayers(TakaroOperation op)
@@ -201,13 +201,13 @@ class TakaroCommandDispatcher
             info.online = true;
             list.players.Insert(info);
         }
-        ReplyOk(op, JsonSerialize(list));
+        ReplyOk(op, SerializePlayersList(list));
     }
 
     void HandleGetPlayer(TakaroOperation op)
     {
         ArgsGetPlayer args = new ArgsGetPlayer();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseGetPlayer(op, args)) return;
 
         PlayerIdentity id = FindIdentityByGameId(args.gameId);
         if (!id)
@@ -221,13 +221,13 @@ class TakaroCommandDispatcher
         info.steamId = id.GetPlainId();
         info.ping = id.GetPingAct();
         info.online = true;
-        ReplyOk(op, JsonSerialize(info));
+        ReplyOk(op, SerializePlayerInfo(info));
     }
 
     void HandleSendMessage(TakaroOperation op)
     {
         ArgsSendMessage args = new ArgsSendMessage();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseSendMessage(op, args)) return;
 
         if (args.recipientGameId != "")
         {
@@ -250,7 +250,7 @@ class TakaroCommandDispatcher
     void HandleKick(TakaroOperation op)
     {
         ArgsKickPlayer args = new ArgsKickPlayer();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseKick(op, args)) return;
 
         PlayerIdentity id = FindIdentityByGameId(args.gameId);
         if (!id)
@@ -265,7 +265,7 @@ class TakaroCommandDispatcher
     void HandleBan(TakaroOperation op)
     {
         ArgsBanPlayer args = new ArgsBanPlayer();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseBan(op, args)) return;
 
         // DayZ's vanilla ban API isn't directly exposed to script; we delegate
         // to a BattlEye command via the server console. VPPAdminTools or
@@ -285,7 +285,7 @@ class TakaroCommandDispatcher
     void HandleUnban(TakaroOperation op)
     {
         ArgsUnbanPlayer args = new ArgsUnbanPlayer();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseUnban(op, args)) return;
         TakaroLog.Warn("unbanPlayer for " + args.gameId + " — ban list edit not implemented in script-only path (TODO)");
         ReplyOk(op, "{\"unbanApplied\":\"noop\"}");
     }
@@ -293,7 +293,7 @@ class TakaroCommandDispatcher
     void HandleTeleport(TakaroOperation op)
     {
         ArgsTeleportPlayer args = new ArgsTeleportPlayer();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseTeleport(op, args)) return;
 
         PlayerBase pb = FindPlayerByGameId(args.gameId);
         if (!pb)
@@ -309,7 +309,7 @@ class TakaroCommandDispatcher
     void HandleGiveItem(TakaroOperation op)
     {
         ArgsGiveItem args = new ArgsGiveItem();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseGiveItem(op, args)) return;
         if (args.amount <= 0) args.amount = 1;
 
         PlayerBase pb = FindPlayerByGameId(args.gameId);
@@ -333,7 +333,7 @@ class TakaroCommandDispatcher
     void HandleExecCommand(TakaroOperation op)
     {
         ArgsExecuteCommand args = new ArgsExecuteCommand();
-        if (!ParseArgs(op, args)) return;
+        if (!ParseExec(op, args)) return;
 
         // Treat as a "say all" if it's a plain message; otherwise log it.
         // Script-side execution of arbitrary BE/RCON commands isn't supported
@@ -422,61 +422,130 @@ class TakaroCommandDispatcher
         TakaroLog.Info("BROADCAST: " + msg);
     }
 
-    bool ParseArgs(TakaroOperation op, Class target)
+    // Per-arg-type parsers. We can't use a generic Class-typed parser because
+    // JsonSerializer in Enforce Script needs the static type at the call site
+    // for proper field introspection.
+    bool ParseGetPlayer(TakaroOperation op, out ArgsGetPlayer args)
     {
-        if (!op || op.argsJson == "")
-        {
-            ReplyError(op, "Missing args");
-            return false;
-        }
-        string err;
-        JsonSerializer js = new JsonSerializer;
-        bool ok = js.ReadFromString(target, op.argsJson, err);
-        if (!ok)
-        {
-            ReplyError(op, "Bad args JSON: " + err);
-            return false;
-        }
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseSendMessage(TakaroOperation op, out ArgsSendMessage args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseKick(TakaroOperation op, out ArgsKickPlayer args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseBan(TakaroOperation op, out ArgsBanPlayer args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseUnban(TakaroOperation op, out ArgsUnbanPlayer args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseTeleport(TakaroOperation op, out ArgsTeleportPlayer args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseGiveItem(TakaroOperation op, out ArgsGiveItem args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
+        return true;
+    }
+    bool ParseExec(TakaroOperation op, out ArgsExecuteCommand args)
+    {
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
         return true;
     }
 
-    string JsonSerialize(Class obj)
+    // Generic serialization helpers — the JsonSerializer works correctly when
+    // given the concrete type, so we provide one helper per result class
+    // rather than passing through a `Class`-typed wrapper which serializes
+    // to an empty object.
+    string SerializeReachability(ResultReachability r)
     {
-        string json;
-        JsonSerializer js = new JsonSerializer;
-        js.WriteToString(obj, false, json);
-        return json;
+        string s; JsonSerializer js = new JsonSerializer; js.WriteToString(r, false, s); return s;
+    }
+    string SerializePlayersList(ResultPlayersList r)
+    {
+        string s; JsonSerializer js = new JsonSerializer; js.WriteToString(r, false, s); return s;
+    }
+    string SerializePlayerInfo(ResultPlayerInfo r)
+    {
+        string s; JsonSerializer js = new JsonSerializer; js.WriteToString(r, false, s); return s;
+    }
+
+    // Build the operation-result body manually. We deliberately keep
+    // `result` as an inline JSON object (not a quoted string) so we don't
+    // have to escape its content — Enforce Script's parser handles escape
+    // sequences awkwardly. operationId and errorMessage are simple values
+    // that callers ensure don't contain quotes or control chars.
+    string BuildResultJson(string operationId, bool ok, string resultJson, string errorMessage)
+    {
+        string okLit;
+        if (ok) okLit = "true"; else okLit = "false";
+        string body = "{" + Quote("operationId") + ":" + Quote(operationId) + "," + Quote("ok") + ":" + okLit;
+        if (resultJson != "")
+            body += "," + Quote("result") + ":" + resultJson;
+        if (errorMessage != "")
+            body += "," + Quote("error") + ":" + Quote(errorMessage);
+        body += "}";
+        return body;
+    }
+
+    // Wrap a string in JSON-style double quotes. Inputs are expected to be
+    // simple identifiers / IDs / human-readable error messages without quotes
+    // or control characters; we don't try to do full JSON escaping here.
+    string Quote(string s)
+    {
+        return "\"" + s + "\"";
     }
 
     void ReplyOk(TakaroOperation op, string resultJson)
     {
-        TakaroOperationResult r = new TakaroOperationResult();
-        r.operationId = op.operationId;
-        r.ok = true;
-        r.resultJson = resultJson;
-        SendResult(r);
+        SendResultRaw(op.operationId, true, resultJson, "");
     }
 
     void ReplyError(TakaroOperation op, string msg)
     {
-        TakaroOperationResult r = new TakaroOperationResult();
-        r.operationId = op.operationId;
-        r.ok = false;
-        r.errorMessage = msg;
-        SendResult(r);
+        SendResultRaw(op.operationId, false, "", msg);
     }
 
-    void SendResult(TakaroOperationResult r)
+    void SendResultRaw(string operationId, bool ok, string resultJson, string errorMessage)
     {
         TakaroConfigData cfg = TakaroConfig.Get();
         if (!cfg) return;
         if (cfg.GameServerId == "")
         {
-            TakaroLog.Warn("No GameServerId set; cannot deliver operation result " + r.operationId);
+            TakaroLog.Warn("No GameServerId set; cannot deliver operation result " + operationId);
             return;
         }
-        string body = JsonSerialize(r);
-        string path = "/gameserver/" + cfg.GameServerId + "/operation/" + r.operationId + "/result";
+        string body = BuildResultJson(operationId, ok, resultJson, errorMessage);
+        string path = "/gameserver/" + cfg.GameServerId + "/operation/" + operationId + "/result";
         TakaroHttpCallback cb = new TakaroHttpCallback("opResult");
         m_Http.Post(path, body, cb);
     }

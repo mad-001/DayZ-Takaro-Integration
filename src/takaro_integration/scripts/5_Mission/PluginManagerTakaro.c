@@ -19,7 +19,7 @@ class TakaroChatRouter
         if (!sender) return;
         if (text == "") return;
 
-        TakaroBridge bridge = MissionServer.GetTakaroBridge();
+        TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
         if (!bridge) return;
 
         bridge.OnChatMessage(sender, channel, text);

@@ -8,7 +8,7 @@ modded class PlayerBase
     {
         super.EEKilled(killer);
 
-        TakaroBridge bridge = MissionServer.GetTakaroBridge();
+        TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
         if (!bridge) return;
 
         EntityAI killerEntity;

@@ -21,14 +21,15 @@ A **server-side-only** DayZ mod that connects a modded DayZ server to the [Takar
 
 | Feature | State |
 | --- | --- |
-| Mod scaffold (config.cpp, MissionServer hooks, PlayerBase EEKilled) | done |
-| Outbound HTTP via `RestApi`/`RestContext` with batching + back-pressure | done |
-| Registration via Takaro registration token → identity token | done |
-| Operation poll loop + dispatcher | done |
-| Player connect/disconnect/death events | done |
+| Mod scaffold + PBO build with no DayZ Tools (custom Python packer) | **verified** on DayZ 1.29 |
+| Mod loads under `-serverMod=` and registers `TakaroIntegration` define | **verified** |
+| Bridge initializes, writes default `config.json`, reads/saves on update | **verified** |
+| Registration POST → identity token + gameServerId persisted | **verified against mock Takaro** |
+| Operation poll → dispatch → result POST cycle | **verified** for `listPlayers`, `testReachability`, `sendMessage`, `unknownAction` (error path) |
+| In-game broadcast on `sendMessage` | **verified** (RPT shows `BROADCAST: Hello from Takaro!`) |
+| Player connect/disconnect/death events (engine hooks) | **wired**, untested without a connecting client |
 | Chat capture | scaffolded — needs CF or VPP compat addon to bind real hook (see [docs/EVENT_MAPPING.md](docs/EVENT_MAPPING.md)) |
 | Ban API | partial — falls back to kick; needs VPP integration for real ban list write |
-| Tested in-game | **no** — first build is unverified, see [docs/INSTALLATION.md](docs/INSTALLATION.md) |
 
 ## Repo layout
 
@@ -59,13 +60,37 @@ scripts/
 
 ## Quick start
 
-1. **Install [DayZ Tools](https://store.steampowered.com/app/830640/DayZ_Tools/)** from Steam (free).
-2. **Build:** `pwsh scripts/build.ps1` → produces `@TakaroIntegration/Addons/TakaroIntegration.pbo`.
-3. **Deploy:** `pwsh scripts/deploy.ps1` → copies `@TakaroIntegration/` to `\\SERVER\GameServers\dayz\`.
-4. **Add to server start command** as `-serverMod="@TakaroIntegration"`. **Never use `-mod=`** for this mod — that would force every joining client to download it.
+You have two build paths:
+
+**Option A — DayZ Tools (recommended for production / signed builds):**
+1. Install [DayZ Tools](https://store.steampowered.com/app/830640/DayZ_Tools/) from Steam (free).
+2. `pwsh scripts/build.ps1` → wraps `AddonBuilder.exe`.
+
+**Option B — Bundled Python packer (no toolchain needed):**
+1. `python3 scripts/pack_pbo.py src/takaro_integration @TakaroIntegration/Addons/TakaroIntegration.pbo --prefix TakaroIntegration`
+2. The packer writes a valid uncompressed PBO with `product=dayz ugc` and `PboType=Arma Addon` — confirmed loadable on DayZ 1.29.
+
+Then:
+
+3. **Deploy:** `pwsh scripts/deploy.ps1` (copies `@TakaroIntegration/` to `\\SERVER\GameServers\dayz\`), or copy the folder manually.
+4. **Add to server start command** as `-serverMod="@TakaroIntegration"`. **Never use `-mod=`** — that would force every joining client to download it.
 5. **Boot the server once** so it writes the default config to `profiles\TakaroIntegration\config.json`.
 6. **Edit the config:** set `TakaroApiUrl` and either `RegistrationToken` (one-shot bootstrap) or `IdentityToken` + `GameServerId` (already-registered server).
 7. **Restart the server.**
+
+### Local end-to-end test
+
+Without a real Takaro account you can verify the full HTTP cycle against a bundled mock:
+
+```bash
+python3 scripts/mock_takaro.py --port 8088 &
+# In config.json, set TakaroApiUrl=http://localhost:8088 and RegistrationToken=anything
+# Restart the DayZ server.
+curl -s http://localhost:8088/admin/state | jq    # see what the bridge has POSTed
+curl -X POST http://localhost:8088/admin/queue -H 'Content-Type: application/json' \
+    -d '{"action":"sendMessage","args":{"message":"hello"}}'
+# Within ~2s the bridge polls, dispatches, broadcasts in-game, and POSTs the result back.
+```
 
 Detailed steps: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 

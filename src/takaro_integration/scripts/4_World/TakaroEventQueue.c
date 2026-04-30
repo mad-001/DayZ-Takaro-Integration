@@ -80,17 +80,16 @@ class TakaroEventQueue
     // Caller is responsible for sending them; on failure they should re-enqueue.
     array<ref TakaroEvent> Drain(int max)
     {
-        array<ref TakaroEvent> out = new array<ref TakaroEvent>;
+        array<ref TakaroEvent> drained = new array<ref TakaroEvent>;
         int n = Math.Min(max, m_Pending.Count());
         for (int i = 0; i < n; i++)
-            out.Insert(m_Pending[i]);
-        // Remove drained items from the front.
+            drained.Insert(m_Pending[i]);
         if (n > 0)
         {
             for (int j = 0; j < n; j++)
                 m_Pending.Remove(0);
         }
-        return out;
+        return drained;
     }
 
     // Re-insert a batch at the head if a flush failed.

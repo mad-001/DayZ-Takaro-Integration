@@ -16,6 +16,7 @@ modded class MissionServer
         {
             m_TakaroBridge = new TakaroBridge();
             m_TakaroBridge.Initialize();
+            TakaroBridgeAccessor.Set(m_TakaroBridge);
             TakaroLog.Info("Bridge attached to MissionServer.OnInit");
         }
     }

@@ -105,3 +105,20 @@ class TakaroLog
             Print("[Takaro][DBG] " + msg);
     }
 }
+
+// Global accessor that lives in 3_Game so any layer can read/write the bridge
+// reference without creating a circular include between 4_World and 5_Mission.
+class TakaroBridgeAccessor
+{
+    private static ref Class s_BridgeRef;
+
+    static void Set(Class bridge)
+    {
+        s_BridgeRef = bridge;
+    }
+
+    static Class Get()
+    {
+        return s_BridgeRef;
+    }
+}
