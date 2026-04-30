@@ -1,0 +1,6 @@
+*.dll
+*.lib
+*.exp
+*.obj
+takaro_config.txt
+logs/
