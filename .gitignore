@@ -1,0 +1,31 @@
+# Build output
+@TakaroIntegration/Addons/*.pbo
+@TakaroIntegration/Addons/*.bisign
+*.pbo
+*.bikey
+*.biprivatekey
+
+# Workshop staging
+*.staging/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local config / secrets
+config.json
+TakaroConfig.json
+profiles/
+
+# Temp
+*.tmp
+*.bak
+*.log

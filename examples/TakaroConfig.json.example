@@ -1,0 +1,12 @@
+{
+    "TakaroApiUrl": "https://api.takaro.io",
+    "IdentityToken": "",
+    "RegistrationToken": "PASTE_REGISTRATION_TOKEN_HERE",
+    "GameServerId": "",
+    "CommandPollIntervalMs": 2000,
+    "EventBatchIntervalMs": 1000,
+    "MaxEventsPerBatch": 50,
+    "RequestTimeoutSeconds": 10,
+    "LogVerbose": false,
+    "DryRun": false
+}
