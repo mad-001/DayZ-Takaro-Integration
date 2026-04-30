@@ -417,6 +417,12 @@ private:
             else if (m.find("getPlayerLocation") != std::string::npos) SendPlayerLocation(requestId);
             else if (m.find("getPlayerInventory") != std::string::npos) SendPlayerInventory(requestId);
             else if (m.find("executeConsoleCommand") != std::string::npos) SendExecuteCommand(requestId, m);
+            // List-type actions return arrays per Takaro DTOs.
+            else if (m.find("\"action\":\"listItems\"") != std::string::npos
+                  || m.find("\"action\":\"listEntities\"") != std::string::npos
+                  || m.find("\"action\":\"listLocations\"") != std::string::npos
+                  || m.find("\"action\":\"listBans\"") != std::string::npos)
+                SendResponse(requestId, "[]");
             else SendGenericFail(requestId, "not implemented");
         }
     }
