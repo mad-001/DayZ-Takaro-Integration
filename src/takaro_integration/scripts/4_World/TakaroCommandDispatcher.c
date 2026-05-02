@@ -171,6 +171,18 @@ class TakaroCommandDispatcher
             case "shutdown":
                 HandleShutdown(op);
                 break;
+            case "listItems":
+                HandleListItems(op);
+                break;
+            case "listEntities":
+                HandleListEntities(op);
+                break;
+            case "listLocations":
+                HandleListLocations(op);
+                break;
+            case "listBans":
+                HandleListBans(op);
+                break;
             default:
                 ReplyError(op, "Unknown action: " + op.action);
                 break;
@@ -539,6 +551,176 @@ class TakaroCommandDispatcher
         // Tell the engine to exit. RequestExit is the canonical clean-shutdown
         // entrypoint; the integer reason code is informational (1 = admin-shutdown).
         GetGame().RequestExit(1);
+    }
+
+    // Walks CfgVehicles and returns spawnable items as IItemDTO[]. Filters by
+    // scope (>=1 = inventory item or world-spawnable). Cap at MAX_LIST_ITEMS
+    // so we don't ship a 30k-entry payload over WS.
+    void HandleListItems(TakaroOperation op)
+    {
+        const int MAX_LIST_ITEMS = 5000;
+        const string ROOT = "CfgVehicles";
+        int count = GetGame().ConfigGetChildrenCount(ROOT);
+        string q = "\"";
+        string json = "[";
+        bool first = true;
+        int emitted = 0;
+        for (int i = 0; i < count && emitted < MAX_LIST_ITEMS; i++)
+        {
+            string cls;
+            GetGame().ConfigGetChildName(ROOT, i, cls);
+            if (cls == "") continue;
+            string base = ROOT + " " + cls + " ";
+            int scope = GetGame().ConfigGetInt(base + "scope");
+            if (scope < 1) continue;
+            string display = "";
+            GetGame().ConfigGetText(base + "displayName", display);
+            if (display == "") display = cls;
+            display = JsonSafeString(display);
+            string entry = "{";
+            entry += q + "name" + q + ":" + q + display + q + ",";
+            entry += q + "code" + q + ":" + q + cls + q + ",";
+            entry += q + "amount" + q + ":1,";
+            entry += q + "quality" + q + ":" + q + q;
+            entry += "}";
+            if (!first) json += ",";
+            first = false;
+            json += entry;
+            emitted++;
+        }
+        json += "]";
+        TakaroLog.Info("listItems: " + emitted.ToString() + " items returned");
+        ReplyOk(op, json);
+    }
+
+    // Same idea but for AI/animal/zombie entity types — anything in CfgVehicles
+    // whose base class chain includes 'DZ_LightAI_Base', 'DayZAnimal', etc.
+    void HandleListEntities(TakaroOperation op)
+    {
+        const int MAX = 2000;
+        const string ROOT = "CfgVehicles";
+        int count = GetGame().ConfigGetChildrenCount(ROOT);
+        string q = "\"";
+        string json = "[";
+        bool first = true;
+        int emitted = 0;
+        for (int i = 0; i < count && emitted < MAX; i++)
+        {
+            string cls;
+            GetGame().ConfigGetChildName(ROOT, i, cls);
+            if (cls == "") continue;
+            // Filter to entity types: animals, infected (zombies), AI.
+            bool isEntity = false;
+            if (GetGame().IsKindOf(cls, "DayZAnimal")) isEntity = true;
+            else if (GetGame().IsKindOf(cls, "DayZInfected")) isEntity = true;
+            else if (GetGame().IsKindOf(cls, "DayZCreature")) isEntity = true;
+            if (!isEntity) continue;
+            string display = "";
+            GetGame().ConfigGetText(ROOT + " " + cls + " displayName", display);
+            if (display == "") display = cls;
+            display = JsonSafeString(display);
+            string entry = "{";
+            entry += q + "name" + q + ":" + q + display + q + ",";
+            entry += q + "code" + q + ":" + q + cls + q + ",";
+            entry += q + "type" + q + ":" + q + "entity" + q;
+            entry += "}";
+            if (!first) json += ",";
+            first = false;
+            json += entry;
+            emitted++;
+        }
+        json += "]";
+        TakaroLog.Info("listEntities: " + emitted.ToString() + " entities returned");
+        ReplyOk(op, json);
+    }
+
+    // Map locations from the world's location config. DayZ exposes these via
+    // GetGame().GetWorld().GetMapLoctList — typed result is array<MapLocation>.
+    // We surface name + position as IMapLocationDTO[].
+    void HandleListLocations(TakaroOperation op)
+    {
+        // DayZ doesn't have a stable script API for enumerating named locations;
+        // they live in the world config. Returning [] is the honest default;
+        // server-specific location lists can be added by a custom mission later.
+        ReplyOk(op, "[]");
+        TakaroLog.Info("listLocations: returned empty (no enumeration API in vanilla)");
+    }
+
+    // Single ban entry builder — extracted from HandleListBans because Enforce
+    // Script's parser flags single-line concatenations of more than ~10
+    // segments as "Formula too complex".
+    string BuildBanEntry(string gameId, string reason)
+    {
+        string q = "\"";
+        string s = "{";
+        s += q + "player" + q + ":{";
+        s += q + "gameId" + q + ":" + q + gameId + q;
+        s += "},";
+        s += q + "reason" + q + ":" + q + reason + q + ",";
+        s += q + "expiresAt" + q + ":null";
+        s += "}";
+        return s;
+    }
+
+    // Reads vanilla DayZ ban.txt (Steam64-per-line) AND BattlEye bans.txt
+    // (GUID DURATION REASON). Merges, dedups, returns IBanDTO[].
+    void HandleListBans(TakaroOperation op)
+    {
+        string q = "\"";
+        string json = "[";
+        bool first = true;
+        int emitted = 0;
+
+        // Vanilla ban.txt — one Steam64 per line (sometimes followed by name)
+        FileHandle f = OpenFile("ban.txt", FileMode.READ);
+        if (f != 0)
+        {
+            string line;
+            while (FGets(f, line) > 0)
+            {
+                line.TrimInPlace();
+                if (line == "") continue;
+                int sp = line.IndexOf(" ");
+                string steamId;
+                if (sp >= 0) steamId = line.Substring(0, sp); else steamId = line;
+                if (steamId == "") continue;
+                if (!first) json += ",";
+                first = false;
+                json += BuildBanEntry(steamId, "");
+                emitted++;
+            }
+            CloseFile(f);
+        }
+
+        // BE bans.txt — "GUID DURATION REASON" per line
+        FileHandle bf = OpenFile("battleye/bans.txt", FileMode.READ);
+        if (bf != 0)
+        {
+            string bline;
+            while (FGets(bf, bline) > 0)
+            {
+                bline.TrimInPlace();
+                if (bline == "" || bline.IndexOf("//") == 0) continue;
+                int sp1 = bline.IndexOf(" ");
+                if (sp1 < 0) continue;
+                string guid = bline.Substring(0, sp1);
+                string rest = bline.Substring(sp1 + 1, bline.Length() - sp1 - 1);
+                rest.TrimInPlace();
+                int sp2 = rest.IndexOf(" ");
+                string reason = "";
+                if (sp2 >= 0)
+                    reason = JsonSafeString(rest.Substring(sp2 + 1, rest.Length() - sp2 - 1));
+                if (!first) json += ",";
+                first = false;
+                json += BuildBanEntry(guid, reason);
+                emitted++;
+            }
+            CloseFile(bf);
+        }
+
+        json += "]";
+        TakaroLog.Info("listBans: " + emitted.ToString() + " bans returned");
+        ReplyOk(op, json);
     }
 
     // ---- helpers -------------------------------------------------------

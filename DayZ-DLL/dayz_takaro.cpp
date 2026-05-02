@@ -1155,9 +1155,8 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
 
     // Built-ins handled directly (no script mod needed):
     if (action == "testReachability") { HandleTestReachability(requestId); return; }
-    if (action == "listItems" || action == "listEntities" || action == "listLocations" || action == "listBans") {
-        HandleListEmpty(requestId); return;
-    }
+    // Note: list* actions used to short-circuit to []; now they flow through
+    // the script mod so it can walk CfgVehicles for real catalogs.
 
     // Extract argsJson early so RCON handlers can use it.
     std::string argsJson;
