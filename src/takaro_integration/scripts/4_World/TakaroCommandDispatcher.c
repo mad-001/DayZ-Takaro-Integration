@@ -457,22 +457,69 @@ class TakaroCommandDispatcher
         ArgsExecuteCommand args = new ArgsExecuteCommand();
         if (!ParseExec(op, args)) return;
 
-        // Treat as a "say all" if it's a plain message; otherwise log it.
-        // Script-side execution of arbitrary BE/RCON commands isn't supported
-        // — we record what was requested and return ok=false for unknown verbs.
         string trimmed = args.command;
         trimmed.TrimInPlace();
+
+        string rawResult = "";
+        bool success = true;
 
         if (trimmed.IndexOf("say ") == 0)
         {
             string msg = trimmed.Substring(4, trimmed.Length() - 4);
             BroadcastSystemMessage(msg, null);
-            ReplyOk(op, "{}");
+            rawResult = "Broadcast: " + msg;
+        }
+        else if (trimmed == "help")
+        {
+            rawResult = "Available script commands: say <text>, help, shutdown. Other RCON commands route through BattlEye when configured.";
+        }
+        else if (trimmed == "shutdown" || trimmed == "#shutdown")
+        {
+            rawResult = "Shutdown initiated";
+            ReplyOk(op, BuildCommandOutput(rawResult, true));
+            // Disconnect everyone first so persistence flushes, then exit.
+            array<Man> players = new array<Man>;
+            GetGame().GetPlayers(players);
+            for (int i = 0; i < players.Count(); i++) {
+                PlayerBase pb = PlayerBase.Cast(players[i]);
+                if (!pb) continue;
+                PlayerIdentity id = pb.GetIdentity();
+                if (id) GetGame().DisconnectPlayer(id);
+            }
+            GetGame().RequestExit(1);
             return;
         }
+        else
+        {
+            rawResult = "Unknown script-side command: " + trimmed;
+            success = false;
+        }
+        ReplyOk(op, BuildCommandOutput(rawResult, success));
+    }
 
-        TakaroLog.Warn("executeConsoleCommand: not script-executable — " + trimmed);
-        ReplyError(op, "Command not script-executable: " + trimmed);
+    string BuildCommandOutput(string rawResult, bool success)
+    {
+        string q = "\"";
+        string s = "{";
+        s += q + "rawResult" + q + ":" + q + JsonSafeString(rawResult) + q + ",";
+        s += q + "success" + q + ":";
+        if (success) s += "true"; else s += "false";
+        s += "}";
+        return s;
+    }
+
+    // Strip characters that would break our naive JSON serialization. Strings
+    // going into rawResult are short, server-controlled / echoed user input —
+    // dropping these chars is fine for our purpose.
+    string JsonSafeString(string s)
+    {
+        string out_s = s;
+        // Replace double-quote (ASCII 34) with single quote (ASCII 39).
+        // Built via Substring on a literal so we don't use a backslash-escape
+        // for the double-quote, which Enforce Script's CParser handles oddly.
+        string dq = "\"";
+        out_s.Replace(dq, "'");
+        return out_s;
     }
 
     void HandleShutdown(TakaroOperation op)
