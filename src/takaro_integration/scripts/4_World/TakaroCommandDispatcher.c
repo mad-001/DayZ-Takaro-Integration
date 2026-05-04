@@ -612,21 +612,25 @@ class TakaroCommandDispatcher
         ReplyOk(op, BuildCommandOutput(rawResult, success));
     }
 
-    // Build the help string. Kept short per concat to dodge Enforce's
+    // Build the help string. One verb per line with description. Kept as
+    // many += statements rather than one big concat to dodge Enforce's
     // "Formula too complex" parser limit.
     string BuildHelpString()
     {
-        string h = "Commands: ";
-        h += "say <text> | ";
-        h += "help | ";
-        h += "shutdown | ";
-        h += "kick <gameId> [reason] | ";
-        h += "ban <gameId> [reason] | ";
-        h += "unban <gameId> | ";
-        h += "tp <gameId> <x> <y> <z> | ";
-        h += "give <gameId> <classname> [amount] | ";
-        h += "players. ";
-        h += "Other RCON verbs route through BattlEye when connected.";
+        string nl = "\n";
+        string h = "Available commands:" + nl;
+        h += "  say <text>                          - broadcast a system message to all players" + nl;
+        h += "  help                                - show this command list" + nl;
+        h += "  shutdown                            - gracefully stop the server (kicks all, RequestExit)" + nl;
+        h += "  kick <gameId> [reason]              - disconnect a player (gameId = Steam64)" + nl;
+        h += "  ban <gameId> [reason]               - write to ban.txt + battleye/bans.txt and kick" + nl;
+        h += "  unban <gameId>                      - remove the gameId from both ban files" + nl;
+        h += "  tp <gameId> <x> <y> <z>             - teleport a player to world coordinates" + nl;
+        h += "  give <gameId> <classname> [amount]  - spawn item(s) into the player's inventory" + nl;
+        h += "  players                             - list every online player (name + gameId)" + nl;
+        h += nl;
+        h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers." + nl;
+        h += "Other RCON verbs route through BattlEye when the BE RCON connection is up.";
         return h;
     }
 
