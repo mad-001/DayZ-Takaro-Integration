@@ -475,38 +475,195 @@ class TakaroCommandDispatcher
         string rawResult = "";
         bool success = true;
 
-        if (trimmed.IndexOf("say ") == 0)
+        // Tokenize on spaces — verb is the first token, rest is the argument.
+        int firstSp = trimmed.IndexOf(" ");
+        string verb = trimmed;
+        string rest = "";
+        if (firstSp >= 0)
         {
-            string msg = trimmed.Substring(4, trimmed.Length() - 4);
-            BroadcastSystemMessage(msg, null);
-            rawResult = "Broadcast: " + msg;
+            verb = trimmed.Substring(0, firstSp);
+            rest = trimmed.Substring(firstSp + 1, trimmed.Length() - firstSp - 1);
+            rest.TrimInPlace();
         }
-        else if (trimmed == "help")
+
+        if (verb == "say")
         {
-            rawResult = "Available script commands: say <text>, help, shutdown. Other RCON commands route through BattlEye when configured.";
+            BroadcastSystemMessage(rest, null);
+            rawResult = "Broadcast: " + rest;
         }
-        else if (trimmed == "shutdown" || trimmed == "#shutdown")
+        else if (verb == "help")
+        {
+            rawResult = BuildHelpString();
+        }
+        else if (verb == "shutdown" || verb == "#shutdown")
         {
             rawResult = "Shutdown initiated";
             ReplyOk(op, BuildCommandOutput(rawResult, true));
             // Disconnect everyone first so persistence flushes, then exit.
-            array<Man> players = new array<Man>;
-            GetGame().GetPlayers(players);
-            for (int i = 0; i < players.Count(); i++) {
-                PlayerBase pb = PlayerBase.Cast(players[i]);
+            array<Man> all = new array<Man>;
+            GetGame().GetPlayers(all);
+            for (int i = 0; i < all.Count(); i++) {
+                PlayerBase pb = PlayerBase.Cast(all[i]);
                 if (!pb) continue;
-                PlayerIdentity id = pb.GetIdentity();
-                if (id) GetGame().DisconnectPlayer(id);
+                PlayerIdentity pid = pb.GetIdentity();
+                if (pid) GetGame().DisconnectPlayer(pid);
             }
             GetGame().RequestExit(1);
             return;
         }
+        else if (verb == "kick")
+        {
+            // kick <gameId> [reason]
+            string kgid;
+            string kreason;
+            SplitFirstToken(rest, kgid, kreason);
+            if (kgid == "") { rawResult = "Usage: kick <gameId> [reason]"; success = false; }
+            else
+            {
+                PlayerIdentity kid = FindIdentityByGameId(kgid);
+                if (!kid) { rawResult = "Player not online: " + kgid; success = false; }
+                else { GetGame().DisconnectPlayer(kid); rawResult = "Kicked " + kgid; }
+            }
+        }
+        else if (verb == "ban" || verb == "addBan")
+        {
+            // ban <gameId> [reason]
+            string bgid;
+            string breason;
+            SplitFirstToken(rest, bgid, breason);
+            if (bgid == "") { rawResult = "Usage: ban <gameId> [reason]"; success = false; }
+            else
+            {
+                PlayerIdentity bid = FindIdentityByGameId(bgid);
+                if (bid) GetGame().DisconnectPlayer(bid);
+                AppendBanLine(bgid, 0, breason);
+                rawResult = "Banned " + bgid;
+            }
+        }
+        else if (verb == "unban" || verb == "removeBan")
+        {
+            // unban <gameId>
+            if (rest == "") { rawResult = "Usage: unban <gameId>"; success = false; }
+            else { RemoveBanLine(rest); rawResult = "Unbanned " + rest; }
+        }
+        else if (verb == "tp" || verb == "teleport")
+        {
+            // tp <gameId> <x> <y> <z>
+            array<string> tparts = new array<string>;
+            SplitTokens(rest, tparts);
+            if (tparts.Count() < 4) { rawResult = "Usage: tp <gameId> <x> <y> <z>"; success = false; }
+            else
+            {
+                PlayerBase tpb = FindPlayerByGameId(tparts[0]);
+                if (!tpb) { rawResult = "Player not online: " + tparts[0]; success = false; }
+                else
+                {
+                    float tx = tparts[1].ToFloat();
+                    float ty = tparts[2].ToFloat();
+                    float tz = tparts[3].ToFloat();
+                    tpb.SetPosition(Vector(tx, ty, tz));
+                    rawResult = "Teleported " + tparts[0] + " to " + tx.ToString() + "," + ty.ToString() + "," + tz.ToString();
+                }
+            }
+        }
+        else if (verb == "give" || verb == "giveItem")
+        {
+            // give <gameId> <classname> [amount]
+            array<string> gparts = new array<string>;
+            SplitTokens(rest, gparts);
+            if (gparts.Count() < 2) { rawResult = "Usage: give <gameId> <classname> [amount]"; success = false; }
+            else
+            {
+                PlayerBase gpb = FindPlayerByGameId(gparts[0]);
+                if (!gpb) { rawResult = "Player not online: " + gparts[0]; success = false; }
+                else
+                {
+                    int gamount = 1;
+                    if (gparts.Count() >= 3) { gamount = gparts[2].ToInt(); if (gamount <= 0) gamount = 1; }
+                    int gcreated = 0;
+                    for (int gi = 0; gi < gamount; gi++)
+                    {
+                        EntityAI gent = gpb.GetInventory().CreateInInventory(gparts[1]);
+                        if (!gent) GetGame().CreateObject(gparts[1], gpb.GetPosition());
+                        else gcreated++;
+                    }
+                    rawResult = "Gave " + gamount.ToString() + "x " + gparts[1] + " to " + gparts[0] + " (" + gcreated.ToString() + " in inventory, rest dropped)";
+                }
+            }
+        }
+        else if (verb == "players" || verb == "listPlayers")
+        {
+            array<Man> ppl = new array<Man>;
+            GetGame().GetPlayers(ppl);
+            rawResult = "Online (" + ppl.Count().ToString() + "):";
+            for (int pi = 0; pi < ppl.Count(); pi++)
+            {
+                PlayerBase ppb = PlayerBase.Cast(ppl[pi]);
+                if (!ppb) continue;
+                PlayerIdentity pid2 = ppb.GetIdentity();
+                if (pid2) rawResult += " " + pid2.GetName() + "(" + pid2.GetPlainId() + ")";
+            }
+        }
         else
         {
-            rawResult = "Unknown script-side command: " + trimmed;
+            rawResult = "Unknown command: " + verb + ". Type 'help' for the command list.";
             success = false;
         }
         ReplyOk(op, BuildCommandOutput(rawResult, success));
+    }
+
+    // Build the help string. Kept short per concat to dodge Enforce's
+    // "Formula too complex" parser limit.
+    string BuildHelpString()
+    {
+        string h = "Commands: ";
+        h += "say <text> | ";
+        h += "help | ";
+        h += "shutdown | ";
+        h += "kick <gameId> [reason] | ";
+        h += "ban <gameId> [reason] | ";
+        h += "unban <gameId> | ";
+        h += "tp <gameId> <x> <y> <z> | ";
+        h += "give <gameId> <classname> [amount] | ";
+        h += "players. ";
+        h += "Other RCON verbs route through BattlEye when connected.";
+        return h;
+    }
+
+    // Split 'rest' into [first-token, remainder-after-first-space].
+    void SplitFirstToken(string s, out string first, out string remainder)
+    {
+        first = "";
+        remainder = "";
+        if (s == "") return;
+        int sp = s.IndexOf(" ");
+        if (sp < 0) { first = s; return; }
+        first = s.Substring(0, sp);
+        remainder = s.Substring(sp + 1, s.Length() - sp - 1);
+        remainder.TrimInPlace();
+    }
+
+    // Whitespace-split into an array.
+    void SplitTokens(string s, out array<string> parts)
+    {
+        if (!parts) return;
+        parts.Clear();
+        if (s == "") return;
+        string cur = "";
+        int n = s.Length();
+        for (int i = 0; i < n; i++)
+        {
+            string ch = s.Substring(i, 1);
+            if (ch == " " || ch == "\t")
+            {
+                if (cur != "") { parts.Insert(cur); cur = ""; }
+            }
+            else
+            {
+                cur += ch;
+            }
+        }
+        if (cur != "") parts.Insert(cur);
     }
 
     string BuildCommandOutput(string rawResult, bool success)
