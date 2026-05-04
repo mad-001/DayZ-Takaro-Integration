@@ -342,6 +342,10 @@ private:
     BeRcon* beRcon = nullptr;
     std::string beServerCfgPath = "battleye\\beserver_x64.cfg";
 
+    std::thread rptTailThread;
+    std::string profilesDir = "profiles";
+    bool forwardLogLines = true;
+
     void LoadConfig();
     bool LoadBeRconConfig(BeRconConfig& out);
     void CloseHandles();
@@ -351,6 +355,10 @@ private:
     std::string ExtractField(const std::string& m, const std::string& field);
     void HandleMessage(const std::string& m);
     void WebSocketThread();
+    void RptTailLoop();
+    std::string FindLatestRpt();
+    bool ShouldForwardLogLine(const std::string& line);
+    void ForwardLogLine(const std::string& line);
     std::string TimestampedLogPath();
 
     // Built-in handlers (no script mod needed):
@@ -858,6 +866,8 @@ void TakaroDayZ::LoadConfig() {
         else if (k == "identityToken") identityToken = v;
         else if (k == "localPort") localPort = atoi(v.c_str());
         else if (k == "beServerCfgPath") beServerCfgPath = v;
+        else if (k == "profilesDir") profilesDir = v;
+        else if (k == "forwardLogLines") forwardLogLines = (v != "0" && v != "false");
     }
     if (identityToken.empty()) identityToken = serverName;
 }
@@ -1270,6 +1280,12 @@ void TakaroDayZ::Start() {
         beRcon->Start();
     }
 
+    // RPT tail — forwards each new server-log line as a Takaro `log` event so
+    // the dashboard's console tab shows what the server console window shows.
+    if (forwardLogLines) {
+        rptTailThread = std::thread(&TakaroDayZ::RptTailLoop, this);
+    }
+
     Log("[Takaro] threads started");
 }
 
@@ -1288,8 +1304,118 @@ void TakaroDayZ::Stop() {
         localServer = nullptr;
     }
     if (wsThread.joinable()) wsThread.join();
+    if (rptTailThread.joinable()) rptTailThread.join();
     Log("[Takaro] stopped");
     if (logFile.is_open()) logFile.close();
+}
+
+// ---- RPT tail -------------------------------------------------------
+
+std::string TakaroDayZ::FindLatestRpt() {
+    std::string pattern = profilesDir + "\\DayZServer_x64_*.RPT";
+    WIN32_FIND_DATAA data;
+    HANDLE h = FindFirstFileA(pattern.c_str(), &data);
+    if (h == INVALID_HANDLE_VALUE) return "";
+    FILETIME bestTime = {};
+    std::string best;
+    do {
+        if (best.empty() || CompareFileTime(&data.ftLastWriteTime, &bestTime) > 0) {
+            bestTime = data.ftLastWriteTime;
+            best = profilesDir + "\\" + data.cFileName;
+        }
+    } while (FindNextFileA(h, &data));
+    FindClose(h);
+    return best;
+}
+
+bool TakaroDayZ::ShouldForwardLogLine(const std::string& line) {
+    if (line.empty()) return false;
+    if (line.size() < 5) return false;
+    // High-volume vanilla DayZ noise — drop. Server admins don't need these
+    // and shipping them every second would flood the Takaro console.
+    static const char* deny[] = {
+        "PerfWarning",
+        "ENTITY    (W)",
+        "ENTITY    (E)",
+        "Warning: No components",
+        "ANIMATION (E)",
+        "Warning Message: No entry",
+        "Warning Message: Animation source",
+        "Warning Message: unable to load",
+        "Updating base class",
+        "Localization not present:",
+        "Fresnel n must be",
+        "SW keep height animation",
+        "Convex \"component",
+        "Door 'DoorsTwin",
+        "[CE][RegisterConfig]",
+        "Unknown object class 'pond'",
+    };
+    for (auto& d : deny) {
+        if (line.find(d) != std::string::npos) return false;
+    }
+    return true;
+}
+
+void TakaroDayZ::ForwardLogLine(const std::string& line) {
+    if (!connected || !hWebSocket) return;
+    std::string body = SimpleJSON::object(
+        SimpleJSON::pair("type", "gameEvent") + "," +
+        "\"payload\":{" +
+            SimpleJSON::pair("type", "log") + "," +
+            "\"data\":{" + SimpleJSON::pair("msg", line) + "}" +
+        "}"
+    );
+    SendRaw(body);
+}
+
+void TakaroDayZ::RptTailLoop() {
+    Log("[Takaro] RPT tail starting; profiles dir = " + profilesDir);
+    std::string currentPath;
+    std::streampos pos = 0;
+
+    // First-attach: seek to end of latest RPT so we don't replay 5MB of boot output.
+    {
+        std::string latest = FindLatestRpt();
+        if (!latest.empty()) {
+            currentPath = latest;
+            std::ifstream f(latest, std::ios::binary);
+            if (f) {
+                f.seekg(0, std::ios::end);
+                pos = f.tellg();
+                Log("[Takaro] RPT initial attach " + latest + " offset=" + std::to_string(pos));
+            }
+        }
+    }
+
+    while (running) {
+        // Re-discover RPT periodically — DayZ rotates per boot.
+        std::string latest = FindLatestRpt();
+        if (!latest.empty() && latest != currentPath) {
+            currentPath = latest;
+            pos = 0;
+            Log("[Takaro] RPT rotated to " + latest);
+        }
+
+        if (!currentPath.empty()) {
+            std::ifstream f(currentPath, std::ios::binary);
+            if (f) {
+                f.seekg(0, std::ios::end);
+                std::streampos sz = f.tellg();
+                if (sz < pos) pos = 0;  // truncated
+                if (sz > pos) {
+                    f.seekg(pos);
+                    std::string line;
+                    while (std::getline(f, line)) {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (ShouldForwardLogLine(line)) ForwardLogLine(line);
+                    }
+                    pos = sz;
+                }
+            }
+        }
+        Sleep(1000);
+    }
 }
 
 // ---- DLL entry ------------------------------------------------------
