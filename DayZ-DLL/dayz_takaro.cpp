@@ -1350,6 +1350,10 @@ bool TakaroDayZ::ShouldForwardLogLine(const std::string& line) {
         "Door 'DoorsTwin",
         "[CE][RegisterConfig]",
         "Unknown object class 'pond'",
+        // Don't forward the bridge's own debug + RCON-not-up noise — they'd
+        // loop back through Takaro's console at every poll.
+        "[Takaro][DBG]",
+        "[Takaro][RCON] recv error 10054",
     };
     for (auto& d : deny) {
         if (line.find(d) != std::string::npos) return false;
