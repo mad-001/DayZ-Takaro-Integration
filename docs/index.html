@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DayZ-Takaro Integration</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -18,351 +13,99 @@
             padding: 20px;
             color: #e0e0e0;
         }
-
         .container {
-            max-width: 900px;
+            max-width: 800px;
             margin: 0 auto;
             background: rgba(30, 30, 40, 0.95);
             padding: 40px;
             border-radius: 15px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
         }
-
         h1 {
             font-size: 2.5em;
-            margin-bottom: 20px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            margin-bottom: 10px;
             background: linear-gradient(135deg, #a78bfa 0%, #c4b5fd 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-
         h2 {
-            font-size: 1.8em;
-            margin-top: 40px;
-            margin-bottom: 15px;
+            font-size: 1.5em;
+            margin-top: 35px;
+            margin-bottom: 12px;
             color: #a78bfa;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
             border-bottom: 2px solid rgba(167, 139, 250, 0.3);
-            padding-bottom: 10px;
+            padding-bottom: 8px;
         }
-
-        h3 {
-            font-size: 1.3em;
-            margin-top: 25px;
-            margin-bottom: 10px;
-            color: #c4b5fd;
-        }
-
-        p {
-            margin-bottom: 15px;
-            line-height: 1.8;
-        }
-
+        p { margin-bottom: 12px; line-height: 1.7; }
         .download-btn {
             display: inline-block;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 15px 30px;
+            padding: 14px 28px;
             border-radius: 8px;
             text-decoration: none;
             font-weight: bold;
-            margin: 20px 10px 20px 0;
-            transition: all 0.3s ease;
+            margin: 15px 0 25px 0;
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
-
-        .download-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-        }
-
-        .info-box {
-            background: rgba(59, 130, 246, 0.1);
-            border-left: 4px solid #3b82f6;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
-
-        .warning-box {
-            background: rgba(239, 68, 68, 0.1);
-            border-left: 4px solid #ef4444;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
-
+        .download-btn:hover { transform: translateY(-2px); }
         code {
             background: rgba(0, 0, 0, 0.3);
             color: #fbbf24;
-            padding: 3px 8px;
+            padding: 2px 6px;
             border-radius: 4px;
             font-family: 'Courier New', monospace;
             font-size: 0.9em;
         }
-
         pre {
             background: rgba(0, 0, 0, 0.4);
-            padding: 20px;
+            padding: 16px;
             border-radius: 8px;
             overflow-x: auto;
-            margin: 15px 0;
+            margin: 12px 0;
             border: 1px solid rgba(167, 139, 250, 0.2);
         }
-
-        pre code {
-            background: none;
-            padding: 0;
-            color: #e0e0e0;
-        }
-
-        ul, ol {
-            margin: 15px 0 15px 30px;
-        }
-
-        li {
-            margin-bottom: 10px;
-            line-height: 1.6;
-        }
-
-        a {
-            color: #a78bfa;
-            text-decoration: none;
-            transition: color 0.3s ease;
-        }
-
-        a:hover {
-            color: #c4b5fd;
-            text-decoration: underline;
-        }
-
-        .note {
-            background: rgba(251, 191, 36, 0.1);
-            border-left: 4px solid #fbbf24;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
+        pre code { background: none; padding: 0; color: #e0e0e0; }
+        ol, ul { margin: 12px 0 12px 28px; }
+        li { margin-bottom: 8px; line-height: 1.6; }
+        a { color: #a78bfa; text-decoration: none; }
+        a:hover { color: #c4b5fd; text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>DayZ-Takaro Integration</h1>
-        <p style="font-size: 1.2em; margin-bottom: 30px;">Connect your DayZ dedicated server to Takaro for Discord integration, player management, server announcements, and full admin control via the Takaro dashboard.</p>
+        <p>Connect your DayZ server to <a href="https://takaro.io">Takaro</a> for Discord chat, server announcements, and admin control.</p>
+
+        <p><strong>Need a Takaro account?</strong> Sign up at <a href="https://takaro.io">takaro.io</a>.</p>
 
         <a href="https://github.com/mad-001/DayZ-Takaro-Integration/releases/latest" class="download-btn">Download Latest Release</a>
-        <a href="https://github.com/mad-001/DayZ-Takaro-Integration" class="download-btn">View Source</a>
 
-        <h2>What You Get</h2>
-        <ul>
-            <li><strong>Server-side script mod</strong> (<code>@TakaroIntegration</code>) — runs in DayZ Enforce Script, no client install required</li>
-            <li><strong>Native bridge DLL</strong> — keeps a persistent WebSocket open to <code>connect.takaro.io</code> and exposes a local HTTP endpoint to the script mod</li>
-            <li><strong>Discord ↔ in-game chat</strong> — messages relay both directions via Takaro's Discord bridge</li>
-            <li><strong>Server announcements</strong> — center-screen banners via the <code>announce</code> verb (uses DayZ-Expansion's BAGUETTE notification when present, falls back to popup notifications otherwise)</li>
-            <li><strong>BE RCON pass-through</strong> — Takaro's <code>say</code>/<code>kick</code>/<code>ban</code>/<code>players</code> route through BattlEye RCON automatically</li>
-            <li><strong>Custom verbs</strong> — <code>tp</code>, <code>give</code>, <code>listplayers</code>, <code>shutdown</code> (with disconnect-drain delay), <code>help</code></li>
-            <li><strong>Player events</strong> — connect / disconnect / chat / death events stream to Takaro with proper <code>platformId</code> (<code>dayz:&lt;BIS-hash&gt;</code>) for cross-game player linking</li>
-            <li><strong>RPT log forwarding</strong> — server RPT lines forward to Takaro as <code>log</code> events</li>
-        </ul>
-
-        <h2>Prerequisites</h2>
-        <ul>
-            <li>DayZ dedicated server (Windows, x64) installed via SteamCMD (app id 223350)</li>
-            <li>Takaro account — sign up at <a href="https://takaro.io">takaro.io</a> or join their <a href="https://discord.gg/takaro">Discord</a></li>
-            <li>Server access (file-system access to the DayZ install directory)</li>
-        </ul>
-
-        <h2>Required Workshop Mods</h2>
-        <p><strong>None mandatory.</strong> The integration is purely server-side and does not require players to install anything.</p>
-
-        <h3>Recommended (Soft Dependencies)</h3>
-        <p>The following workshop mods unlock the full feature set. The integration auto-detects them at compile time and falls back to vanilla DayZ APIs when they're absent.</p>
-        <ul>
-            <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=1559212036"><strong>CF (Community Framework)</strong></a> — required by Expansion. Workshop ID <code>1559212036</code>.</li>
-            <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2572331007"><strong>DayZ-Expansion-Core</strong></a> — required for the chat-line Discord bridge format and the BAGUETTE banner used by <code>announce</code>. Workshop ID <code>2572331007</code>.</li>
-            <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2572331007"><strong>DayZ-Expansion-Bundle</strong></a> (or <code>DayZ-Expansion-Licensed</code>) — needed alongside Core for the chat module's <code>RPC_AddChatMessage</code>.</li>
-        </ul>
-
-        <div class="info-box">
-            <strong>Without Expansion:</strong> Discord messages still display in-game but as <code>NotificationSystem</code> popups in the corner. The <code>announce</code> verb shows per-player popup notifications instead of a center-screen banner. Everything else (BE RCON, events, custom verbs) works unchanged.
-        </div>
-
-        <h2>Setup: Install the Mod</h2>
-
-        <h3>1. Download the Release</h3>
-        <p>Grab the latest release ZIP from <a href="https://github.com/mad-001/DayZ-Takaro-Integration/releases/latest">the releases page</a>. The archive contains:</p>
-        <ul>
-            <li><code>@TakaroIntegration/</code> — the script mod folder, contains <code>Addons/TakaroIntegration.pbo</code></li>
-            <li><code>dayz_takaro.dll</code> — the native bridge DLL</li>
-            <li><code>winmm.dll</code> — the proxy DLL that loads the bridge into <code>DayZServer_x64.exe</code> at startup</li>
-        </ul>
-
-        <h3>2. Drop Files into the Server Directory</h3>
-        <p>Place files alongside <code>DayZServer_x64.exe</code> (typical layout shown for <code>C:\GameServers\dayz\</code>):</p>
-        <pre><code>C:\GameServers\dayz\
-├── DayZServer_x64.exe
-├── dayz_takaro.dll              ← bridge DLL
-├── winmm.dll                    ← proxy DLL (auto-loads bridge)
-├── @TakaroIntegration\
-│   └── Addons\
-│       └── TakaroIntegration.pbo
-├── battleye\
-│   └── beserver_x64.cfg         ← BE config (see RCON section)
-├── profiles\
-│   ├── TakaroIntegration\
-│   │   └── config.json          ← created on first start
-│   └── BattlEye\
-│       └── battleye\
-│           └── beserver_x64.cfg ← duplicate of above (see RCON section)
-└── serverDZ.cfg</code></pre>
-
-        <div class="warning-box">
-            <strong>Why <code>winmm.dll</code>?</strong> DayZ Server has no native plugin loader, so the bridge uses a winmm proxy: <code>DayZServer_x64.exe</code> imports WINMM, our fake <code>winmm.dll</code> loads first and <code>LoadLibrary</code>'s <code>dayz_takaro.dll</code> from the same folder. Don't replace your system <code>winmm.dll</code> — only the one in the server directory.
-        </div>
-
-        <h2>Setup: Takaro Tokens</h2>
-
-        <h3>1. Register the Server in Takaro</h3>
+        <h2>Install</h2>
         <ol>
-            <li>Log into <a href="https://takaro.io">takaro.io</a></li>
-            <li>Click <strong>Create Game Server</strong></li>
-            <li>Choose <strong>Generic</strong> as the type (DayZ uses the generic emitter)</li>
-            <li>Give the server a name and create it</li>
-            <li>Open the server's settings page and copy the <strong>Identity Token</strong> and <strong>Registration Token</strong></li>
-        </ol>
-
-        <h3>2. Configure the Bridge</h3>
-        <p>Create <code>profiles\TakaroIntegration\config.json</code> with your tokens:</p>
-        <pre><code>{
-    "IdentityToken": "your-identity-token-here",
-    "RegistrationToken": "your-registration-token-here",
+            <li>Extract the release ZIP into your DayZ server folder (next to <code>DayZServer_x64.exe</code>). You'll have <code>@TakaroIntegration\</code>, <code>dayz_takaro.dll</code>, and <code>winmm.dll</code>.</li>
+            <li>In Takaro, create a Generic game server and copy its <strong>Identity Token</strong> and <strong>Registration Token</strong>.</li>
+            <li>Create <code>profiles\TakaroIntegration\config.json</code>:
+                <pre><code>{
+    "IdentityToken": "your-identity-token",
+    "RegistrationToken": "your-registration-token",
     "GameServerId": "MyDayZServer",
-    "TakaroApiUrl": "http://localhost:8089",
-    "MaxEventsPerBatch": 50,
-    "EventBatchIntervalMs": 1000,
-    "CommandPollIntervalMs": 2000,
-    "RequestTimeoutSeconds": 10,
-    "DryRun": 0,
-    "LogVerbose": 0
+    "TakaroApiUrl": "http://localhost:8089"
 }</code></pre>
-        <p>The DLL writes a default file on first start if one doesn't exist; copy your tokens in afterwards.</p>
-
-        <h2>Setup: BattlEye RCON</h2>
-        <p>BE RCON gives Takaro the canonical chat-broadcast (<code>say -1</code>) and admin commands (kick/ban/players). It must be configured in <strong>two locations</strong> on a fresh DayZ install — this is a DayZ-side quirk, not specific to our mod.</p>
-
-        <h3>1. Edit <code>battleye\beserver_x64.cfg</code></h3>
-        <p>Use a real Windows editor (Notepad, VS Code) — the file <strong>must use CRLF line endings</strong>, not LF:</p>
-        <pre><code>RConPassword YourSecureRConPassword
+            </li>
+            <li>Configure BattlEye RCON in <code>battleye\beserver_x64.cfg</code> with CRLF line endings:
+                <pre><code>RConPassword YourSecurePassword
 RConIP 127.0.0.1
 RConPort 2306
 RestrictRCon 0</code></pre>
-
-        <div class="warning-box">
-            <strong>RConIP must be <code>127.0.0.1</code>:</strong> the bridge DLL connects via loopback. <code>0.0.0.0</code> can break BE Server's bind on some Windows configurations.
-        </div>
-
-        <h3>2. Duplicate the cfg into <code>profiles\BattlEye\battleye\</code></h3>
-        <p>DayZ launches BE Server from the profiles directory at runtime, and BE looks for its config <strong>next to the loaded DLL</strong>, not at <code>-bepath</code>. Without the duplicate, BE loads but never binds the RCON port — the bridge will then loop on <code>recv error 10054</code>.</p>
-        <pre><code>copy battleye\beserver_x64.cfg profiles\BattlEye\battleye\beserver_x64.cfg</code></pre>
-
-        <p>Whenever you edit the cfg, remember to copy it to <strong>both</strong> locations.</p>
-
-        <div class="info-box">
-            <strong>How to verify:</strong> after starting the server, run <code>Get-NetUDPEndpoint -LocalPort 2306</code> in PowerShell. You should see <code>DayZServer_x64</code> listening. The bridge log (<code>logs\TakaroLogs\dayz-takaro-*.log</code>) should show <code>[Takaro][RCON] login OK</code> within ~30–45 seconds of boot.
-        </div>
-
-        <h2>Setup: Launch Parameters</h2>
-
-        <p>Add the mod to <code>-serverMod</code> and ensure <code>-bepath</code> points at <code>battleye</code>:</p>
-        <pre><code>DayZServer_x64.exe ^
-  -config=serverDZ.cfg ^
-  -port=2302 ^
-  "-mod=@CF;@DayZ-Expansion-Core;@DayZ-Expansion-Bundle" ^
-  "-serverMod=@TakaroIntegration" ^
-  -profiles=profiles ^
-  -bepath=battleye ^
-  -freezecheck ^
-  -adminlog ^
-  -dologs ^
-  -netlog ^
-  -cpuCount=12 ^
-  -exThreads=11</code></pre>
-
-        <ul>
-            <li><code>-mod=...</code> — workshop mods (CF, Expansion, etc.) loaded by both clients and server</li>
-            <li><code>-serverMod=@TakaroIntegration</code> — server-only, no client distribution required</li>
-            <li><code>-bepath=battleye</code> — required for BE RCON; without it BE never starts</li>
-        </ul>
-
-        <h2>Setup: Verify the Connection</h2>
-
-        <p>After your first start, check these signs of life:</p>
-        <ol>
-            <li>Server's <code>logs\TakaroLogs\dayz-takaro-*.log</code> shows:
-                <pre><code>[Takaro] DayZ DLL initializing v0.2 (HTTP-bridged)
-[Takaro] HTTP listening on 127.0.0.1:8089
-[Takaro] WS open to wss://connect.takaro.io/
-[Takaro] identified, gameServerId=&lt;your-id&gt;
-[Takaro][RCON] login OK</code></pre>
+                Then copy that same file to <code>profiles\BattlEye\battleye\beserver_x64.cfg</code> (BE reads from the runtime location, not <code>-bepath</code>).
             </li>
-            <li>The script log (<code>profiles\script_*.log</code>) shows <code>[Takaro] Bridge attached to MissionServer.OnInit</code></li>
-            <li>Takaro dashboard's server page shows <strong>Reachable: yes</strong> within ~10 seconds</li>
-            <li>Connect/disconnect events appear in Takaro's events stream when a player joins/leaves</li>
+            <li>Add to your server launch arguments:
+                <pre><code>-serverMod=@TakaroIntegration -bepath=battleye</code></pre>
+            </li>
+            <li>Start the server. Within 30–60 seconds, Takaro's dashboard should mark the server as reachable.</li>
         </ol>
-
-        <h2>Custom Verbs</h2>
-
-        <p>These run via Takaro's <code>executeCommand</code> action (the dashboard's command box, or a Takaro module):</p>
-
-        <pre><code>say &lt;text&gt;                          - broadcast (BattlEye chat: shows as "(Admin) ...")
-help                                - list every command with usage
-shutdown                            - kick all + RequestExit (5s drain delay flushes saves)
-kick &lt;gameId&gt; [reason]              - disconnect a player by Steam64
-ban &lt;gameId&gt; [reason]               - write to BE bans + DayZ ban.txt + kick
-unban &lt;gameId&gt;                      - remove from both ban files
-tp &lt;gameId&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt;             - teleport to coordinates
-give &lt;gameId&gt; &lt;classname&gt; [amount]  - spawn item(s) into the player's inventory
-players                             - list every online player (name + gameId)
-announce &lt;message&gt;                  - center-screen banner (Expansion BAGUETTE) to all players
-announce &lt;title&gt; | &lt;message&gt;        - banner with custom title</code></pre>
-
-        <p>Aliases: <code>addBan</code> / <code>removeBan</code> / <code>teleport</code> / <code>giveItem</code> / <code>listPlayers</code> / <code>banner</code>.</p>
-
-        <h2>Updating</h2>
-        <ol>
-            <li>Stop the DayZ server (the running process locks the PBO and DLL)</li>
-            <li>Replace <code>@TakaroIntegration\Addons\TakaroIntegration.pbo</code> and <code>dayz_takaro.dll</code> with the new release</li>
-            <li><code>winmm.dll</code> rarely changes — only replace if the release notes say to</li>
-            <li>Start the server</li>
-        </ol>
-
-        <h2>Troubleshooting</h2>
-
-        <h3>Bridge doesn't connect (no <code>[Takaro] WS open</code> in log)</h3>
-        <ul>
-            <li>Check that <code>winmm.dll</code> is in the server folder, not just <code>dayz_takaro.dll</code> alone</li>
-            <li>Verify the tokens in <code>config.json</code> match your Takaro server settings</li>
-            <li>Outbound HTTPS to <code>connect.takaro.io:443</code> must not be blocked by a firewall</li>
-        </ul>
-
-        <h3>BE RCON login never succeeds (<code>recv error 10054</code> in log)</h3>
-        <ul>
-            <li>Confirm <code>beserver_x64.cfg</code> exists in <strong>both</strong> <code>battleye\</code> and <code>profiles\BattlEye\battleye\</code></li>
-            <li>Confirm CRLF line endings (open in Notepad, not <code>nano</code>/<code>vim</code> set to LF)</li>
-            <li>Confirm <code>RConIP 127.0.0.1</code> and a non-empty <code>RConPassword</code></li>
-            <li>Run <code>Get-NetUDPEndpoint -LocalPort 2306</code> — if no entry, BE isn't binding</li>
-        </ul>
-
-        <h3>Discord messages don't show in chat</h3>
-        <ul>
-            <li>With Expansion loaded: messages render as a chat-line via <code>CCGlobal</code>. If you see nothing, check Takaro's events log for <code>chat-message</code> firing — if it doesn't, the issue is upstream of the mod.</li>
-            <li>Without Expansion: messages render as <code>NotificationSystem</code> popups in the corner, not in the chat scroll.</li>
-        </ul>
-
-        <h3>Other issues</h3>
-        <p>Check <code>logs\TakaroLogs\dayz-takaro-*.log</code> for the bridge's view of what's happening, and <code>profiles\script_*.log</code> for the script mod's. Open an issue on <a href="https://github.com/mad-001/DayZ-Takaro-Integration/issues">GitHub</a> with both logs attached.</p>
     </div>
 </body>
 </html>
