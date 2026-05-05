@@ -1260,6 +1260,15 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
 }
 
 void TakaroDayZ::WebSocketThread() {
+    // Accumulator for multi-fragment WS messages. WinHttpWebSocketReceive
+    // returns UTF8_FRAGMENT_BUFFER_TYPE for intermediate fragments and
+    // UTF8_MESSAGE_BUFFER_TYPE for the final fragment of a (possibly
+    // single-fragment) message. We must concatenate all fragments and only
+    // hand the assembled text to HandleMessage when the final frame
+    // arrives — otherwise large payloads (e.g. teleportPlayer's full POG
+    // record at >8KB) get processed mid-stream and trailing fields like
+    // requestId are lost.
+    std::string recvAccum;
     while (running) {
         if (!connected) {
             if (ConnectToTakaro()) {
@@ -1287,15 +1296,20 @@ void TakaroDayZ::WebSocketThread() {
         WINHTTP_WEB_SOCKET_BUFFER_TYPE bt;
         DWORD r = WinHttpWebSocketReceive(hLocal, buf, sizeof(buf), &bytes, &bt);
         if (r == ERROR_SUCCESS && bytes > 0) {
-            if (bt == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
-                bt == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {
-                HandleMessage(std::string((char*)buf, bytes));
+            if (bt == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {
+                recvAccum.append((char*)buf, bytes);
+            } else if (bt == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) {
+                recvAccum.append((char*)buf, bytes);
+                HandleMessage(recvAccum);
+                recvAccum.clear();
             }
+            // Binary / close types: ignore for our text-only protocol.
         } else if (r != ERROR_SUCCESS) {
             Log("[Takaro] receive error: " + std::to_string(r));
             connected = false;
             CloseHandles();
             Sleep(5000);
+            recvAccum.clear();  // drop any half-received message on disconnect
         }
         Sleep(10);
     }
