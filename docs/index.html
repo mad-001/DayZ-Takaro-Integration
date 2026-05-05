@@ -106,6 +106,20 @@ RestrictRCon 0</code></pre>
             </li>
             <li>Start the server. Within 30–60 seconds, Takaro's dashboard should mark the server as reachable.</li>
         </ol>
+
+        <h2>Commands</h2>
+        <p>Run via Takaro's execute-command action (dashboard command box or any Takaro module):</p>
+        <pre><code>say &lt;text&gt;                          - broadcast to all players
+help                                - list commands
+shutdown                            - stop the server (saves first)
+kick &lt;gameId&gt; [reason]              - disconnect a player
+ban &lt;gameId&gt; [reason]               - ban + kick
+unban &lt;gameId&gt;                      - remove ban
+tp &lt;gameId&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt;             - teleport
+give &lt;gameId&gt; &lt;classname&gt; [amount]  - spawn item
+players                             - list online players
+announce &lt;message&gt;                  - center-screen banner
+announce &lt;title&gt; | &lt;message&gt;        - banner with custom title</code></pre>
     </div>
 </body>
 </html>
