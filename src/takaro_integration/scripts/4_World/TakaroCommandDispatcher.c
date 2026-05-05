@@ -56,19 +56,12 @@ class ArgsUnbanPlayer
     string gameId;
 }
 
-// Connector sends teleportPlayer/kickPlayer/etc. with the player as a nested
-// object, not a flat gameId. Mirror that shape so JsonSerializer matches.
-class ArgsPlayerRef
-{
-    string gameId;
-}
 class ArgsTeleportPlayer
 {
-    ref ArgsPlayerRef player;
+    string gameId;
     float x;
     float y;
     float z;
-    string dimension;
 }
 
 class ArgsGiveItem
@@ -434,16 +427,11 @@ class TakaroCommandDispatcher
     {
         ArgsTeleportPlayer args = new ArgsTeleportPlayer();
         if (!ParseTeleport(op, args)) return;
-        if (!args.player || args.player.gameId == "")
-        {
-            ReplyError(op, "Missing player.gameId in teleport args");
-            return;
-        }
 
-        PlayerBase pb = FindPlayerByGameId(args.player.gameId);
+        PlayerBase pb = FindPlayerByGameId(args.gameId);
         if (!pb)
         {
-            ReplyError(op, "Player not online: " + args.player.gameId);
+            ReplyError(op, "Player not online: " + args.gameId);
             return;
         }
         vector destination = Vector(args.x, args.y, args.z);
@@ -1078,54 +1066,10 @@ class TakaroCommandDispatcher
     }
     bool ParseTeleport(TakaroOperation op, out ArgsTeleportPlayer args)
     {
-        // Takaro's connector sends teleportPlayer args as
-        //   {"player":{"createdAt":...,"gameId":"<id>",...nested player...},
-        //    "x":N,"y":N,"z":N,"dimension":...}
-        // — Enforce's JsonSerializer.ReadFromString errors out on the
-        // many unknown fields and the nested player. Parse manually
-        // instead: pull gameId from the first "gameId":"..." occurrence
-        // and pull top-level x/y/z by their leading-comma anchor.
         if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return false; }
-        string raw = op.argsJson;
-
-        string gameIdKey = "\"gameId\":\"";
-        int gIdx = raw.IndexOf(gameIdKey);
-        if (gIdx < 0) { ReplyError(op, "Bad args: missing gameId"); return false; }
-        int gStart = gIdx + gameIdKey.Length();
-        int gEnd = -1;
-        for (int i = gStart; i < raw.Length(); i++)
-        {
-            if (raw.Substring(i, 1) == "\"") { gEnd = i; break; }
-        }
-        if (gEnd < 0) { ReplyError(op, "Bad args: gameId unterminated"); return false; }
-        args.player = new ArgsPlayerRef();
-        args.player.gameId = raw.Substring(gStart, gEnd - gStart);
-
-        // Extract a top-level numeric field by leading-comma anchor (the
-        // player object closes with `},` so `,"x":` is unique to top level).
-        args.x = ExtractTopLevelNumber(raw, ",\"x\":");
-        args.y = ExtractTopLevelNumber(raw, ",\"y\":");
-        args.z = ExtractTopLevelNumber(raw, ",\"z\":");
+        string err; JsonSerializer js = new JsonSerializer;
+        if (!js.ReadFromString(args, op.argsJson, err)) { ReplyError(op, "Bad args: " + err); return false; }
         return true;
-    }
-
-    // Read a JSON number (int or float) starting after `key` in `raw`.
-    // Stops at the first non-numeric, non-dot, non-minus character.
-    float ExtractTopLevelNumber(string raw, string key)
-    {
-        int p = raw.IndexOf(key);
-        if (p < 0) return 0;
-        p += key.Length();
-        int e = p;
-        while (e < raw.Length())
-        {
-            string ch = raw.Substring(e, 1);
-            if (ch == "-" || ch == "." || (ch >= "0" && ch <= "9")) e++;
-            else break;
-        }
-        if (e <= p) return 0;
-        string num = raw.Substring(p, e - p);
-        return num.ToFloat();
     }
     bool ParseGiveItem(TakaroOperation op, out ArgsGiveItem args)
     {
