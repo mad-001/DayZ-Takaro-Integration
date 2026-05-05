@@ -108,23 +108,21 @@ RestrictRCon 0</code></pre>
             </li>
             <li>Add to your server launch arguments:
                 <pre><code>-serverMod=@TakaroIntegration -bepath=battleye</code></pre>
-                A complete <code>start_server.bat</code> template (place it next to <code>DayZServer_x64.exe</code>):
+                Minimal <code>start_server.bat</code> template (place it next to <code>DayZServer_x64.exe</code>) — add any of your other workshop mods to the <code>-mod=</code> list as you normally would:
                 <pre><code>@echo off
 cd /d "C:\path\to\your\dayz\server"
 
 start "DayZ Server" "DayZServer_x64.exe" ^
  -config=serverDZ.cfg ^
  -port=2302 ^
- "-mod=@CF;@DayZ-Expansion-Core;@DayZ-Expansion-Bundle;@VPPAdminTools" ^
+ "-mod=@VPPAdminTools" ^
  "-serverMod=@TakaroIntegration" ^
  -profiles=profiles ^
  -bepath=battleye ^
  -freezecheck ^
  -adminlog ^
  -dologs ^
- -netlog ^
- -cpuCount=12 ^
- -exThreads=11
+ -netlog
 
 exit</code></pre>
             </li>
