@@ -4,10 +4,10 @@
 
 class TakaroConfigData
 {
-    string TakaroApiUrl;            // e.g. "https://api.takaro.io"
-    string IdentityToken;           // Takaro identity token (long-lived)
-    string RegistrationToken;       // Takaro registration token (used once)
-    string GameServerId;            // Filled in by Takaro after registration
+    string TakaroApiUrl;            // local DLL bridge URL — script POSTs events here, DLL forwards over WS
+    string IdentityToken;           // unused at script level (DLL talks to Takaro); kept for compat
+    string RegistrationToken;       // unused at script level (DLL talks to Takaro); kept for compat
+    string GameServerId;            // server identity used in /gameserver/<id>/... paths to the DLL
     int CommandPollIntervalMs;      // How often to poll for outbound commands
     int EventBatchIntervalMs;       // How often to flush queued events
     int MaxEventsPerBatch;          // Max events sent per flush
@@ -17,10 +17,10 @@ class TakaroConfigData
 
     void TakaroConfigData()
     {
-        TakaroApiUrl = "https://api.takaro.io";
+        TakaroApiUrl = "http://localhost:8089";
         IdentityToken = "";
         RegistrationToken = "";
-        GameServerId = "";
+        GameServerId = "local";
         CommandPollIntervalMs = 2000;
         EventBatchIntervalMs = 1000;
         MaxEventsPerBatch = 50;
