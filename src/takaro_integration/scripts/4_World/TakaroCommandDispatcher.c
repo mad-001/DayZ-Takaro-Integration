@@ -56,12 +56,19 @@ class ArgsUnbanPlayer
     string gameId;
 }
 
-class ArgsTeleportPlayer
+// Connector sends teleportPlayer/kickPlayer/etc. with the player as a nested
+// object, not a flat gameId. Mirror that shape so JsonSerializer matches.
+class ArgsPlayerRef
 {
     string gameId;
+}
+class ArgsTeleportPlayer
+{
+    ref ArgsPlayerRef player;
     float x;
     float y;
     float z;
+    string dimension;
 }
 
 class ArgsGiveItem
@@ -427,11 +434,16 @@ class TakaroCommandDispatcher
     {
         ArgsTeleportPlayer args = new ArgsTeleportPlayer();
         if (!ParseTeleport(op, args)) return;
+        if (!args.player || args.player.gameId == "")
+        {
+            ReplyError(op, "Missing player.gameId in teleport args");
+            return;
+        }
 
-        PlayerBase pb = FindPlayerByGameId(args.gameId);
+        PlayerBase pb = FindPlayerByGameId(args.player.gameId);
         if (!pb)
         {
-            ReplyError(op, "Player not online: " + args.gameId);
+            ReplyError(op, "Player not online: " + args.player.gameId);
             return;
         }
         vector destination = Vector(args.x, args.y, args.z);

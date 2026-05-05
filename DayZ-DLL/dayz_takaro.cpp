@@ -1182,6 +1182,15 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
     std::string requestId = ExtractField(m, "requestId");
     std::string action = ExtractField(m, "action");
 
+    // Diagnostic: log raw WS message preview when extraction fails so we
+    // can see what the connector actually sent. Removes itself once both
+    // fields parse cleanly.
+    if (requestId.empty() || action.empty()) {
+        std::string preview = m.size() > 600 ? m.substr(0, 600) + "...(truncated)" : m;
+        Log("[Takaro][DBG-EXTRACT] requestId='" + requestId + "' action='" + action +
+            "' msglen=" + std::to_string(m.size()) + " preview=" + preview);
+    }
+
     // Built-ins handled directly (no script mod needed):
     if (action == "testReachability") { HandleTestReachability(requestId); return; }
     // Note: list* actions used to short-circuit to []; now they flow through
