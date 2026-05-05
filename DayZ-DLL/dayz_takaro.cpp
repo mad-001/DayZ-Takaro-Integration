@@ -1226,9 +1226,15 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
     if (action == "executeConsoleCommand") {
         if (beRcon && beRcon->LoggedIn()) {
             std::string cmd = ExtractStringField(argsJson, "command");
-            std::string verb = cmd;
-            size_t sp = cmd.find(' ');
-            if (sp != std::string::npos) verb = cmd.substr(0, sp);
+            // Strip leading whitespace before verb extraction. Takaro's
+            // dashboard occasionally prepends a space, which would otherwise
+            // make the verb scan return an empty string and route every
+            // command to BE (BE then answers "Unknown command").
+            size_t lead = 0;
+            while (lead < cmd.size() && (cmd[lead] == ' ' || cmd[lead] == '\t')) lead++;
+            std::string verb = cmd.substr(lead);
+            size_t sp = verb.find(' ');
+            if (sp != std::string::npos) verb = verb.substr(0, sp);
             for (auto& c : verb) c = (char)tolower((unsigned char)c);
             bool scriptOnly =
                 verb == "help" ||
