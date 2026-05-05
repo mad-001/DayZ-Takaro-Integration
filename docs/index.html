@@ -82,6 +82,11 @@
 
         <a href="https://github.com/mad-001/DayZ-Takaro-Integration/releases/latest" class="download-btn">Download Latest Release</a>
 
+        <h2>Required Workshop Mods</h2>
+        <ul>
+            <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2018466091"><strong>VPPAdminTools</strong></a> — required for in-game admin tools (map, spectate, ban management, etc.)</li>
+        </ul>
+
         <h2>Install</h2>
         <ol>
             <li>Extract the release ZIP into your DayZ server folder (next to <code>DayZServer_x64.exe</code>). You'll have <code>@TakaroIntegration\</code>, <code>dayz_takaro.dll</code>, and <code>winmm.dll</code>.</li>
@@ -103,6 +108,25 @@ RestrictRCon 0</code></pre>
             </li>
             <li>Add to your server launch arguments:
                 <pre><code>-serverMod=@TakaroIntegration -bepath=battleye</code></pre>
+                A complete <code>start_server.bat</code> template (place it next to <code>DayZServer_x64.exe</code>):
+                <pre><code>@echo off
+cd /d "C:\path\to\your\dayz\server"
+
+start "DayZ Server" "DayZServer_x64.exe" ^
+ -config=serverDZ.cfg ^
+ -port=2302 ^
+ "-mod=@CF;@DayZ-Expansion-Core;@DayZ-Expansion-Bundle;@VPPAdminTools" ^
+ "-serverMod=@TakaroIntegration" ^
+ -profiles=profiles ^
+ -bepath=battleye ^
+ -freezecheck ^
+ -adminlog ^
+ -dologs ^
+ -netlog ^
+ -cpuCount=12 ^
+ -exThreads=11
+
+exit</code></pre>
             </li>
             <li>Start the server. Within 30–60 seconds, Takaro's dashboard should mark the server as reachable.</li>
         </ol>
