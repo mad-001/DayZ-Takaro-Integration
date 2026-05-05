@@ -955,17 +955,16 @@ class TakaroCommandDispatcher
     {
         // With Expansion loaded we use the global chat channel (CCGlobal,
         // renders as "(Global)" — neutral white text, not the gaudy pink of
-        // CCSystem) and prepend a Discord-coloured "[D]" tag inline using
-        // Enforce TextWidget markup. The body itself stays the default chat
-        // colour. If markup isn't honoured by the chat widget the tags
-        // would show as literal text — iterate visibly if so.
-        //
-        // Discord blurple #5865F2 ≈ rgba(0.345, 0.396, 0.949, 1).
+        // CCSystem) and prepend a plain "[D]" tag. Inline color markup is
+        // unsupported: ExpansionChatLine.Set hardcodes the sender colour to
+        // white and applies the message colour via TextWidget.SetColor over
+        // the whole body, so we can't tint just the prefix without a
+        // client-side mod.
 #ifdef EXPANSIONMOD
         ExpansionGlobalChatModule mod;
         if (CF_Modules<ExpansionGlobalChatModule>.Get(mod))
         {
-            string body = "<color #5865F2>[D]</color> " + msg;
+            string body = "[D] " + msg;
             ExpansionChatMessageEventParams data = new ExpansionChatMessageEventParams(
                 ExpansionChatChannels.CCGlobal, "", body, "", "");
             auto rpc = mod.Expansion_CreateRPC("RPC_AddChatMessage");
