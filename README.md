@@ -1,6 +1,6 @@
 # DayZ ↔ Takaro Integration
 
-A **server-side-only** DayZ mod (loaded with `-serverMod=`, so clients never download it) plus a tiny Node.js bridge sidecar that connects to [Takaro](https://takaro.io?via=zach550).
+A **server-side-only** DayZ mod (loaded with `-serverMod=`, so clients never download it) plus a tiny Node.js bridge sidecar that connects to [Takaro](https://takaro.io/pricing/?via=zach550).
 
 ```
 DayZ Server                                 Sidecar                Takaro
