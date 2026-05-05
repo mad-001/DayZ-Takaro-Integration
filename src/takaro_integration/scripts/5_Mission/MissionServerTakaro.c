@@ -76,11 +76,11 @@ modded class MissionServer
 
     private string ChannelToString(int channel)
     {
-        // CCDirect=0, CCGlobal=1, CCSystem=2, CCAdmin=3, CCRadio=4, CCTransmitter=5
-        if (channel == 0) return "direct";
-        if (channel == 1) return "global";
-        if (channel == 3) return "admin";
-        if (channel == 4) return "radio";
+        // DayZ channels: CCDirect=0, CCGlobal=1, CCSystem=2, CCAdmin=3,
+        // CCRadio=4, CCTransmitter=5. Takaro's ChatChannel enum is strictly
+        // global|team|friends|whisper — anything else fails IsEnum. Direct
+        // (proximity) chat is closest to "global" semantically; collapse all
+        // DayZ channels to "global" so events pass DTO validation.
         return "global";
     }
 

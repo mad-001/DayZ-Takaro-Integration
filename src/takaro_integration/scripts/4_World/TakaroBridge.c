@@ -180,7 +180,7 @@ class TakaroBridge
     }
 
     private ref TakaroFlushCallback m_FlushCallback;
-    private ref array<ref TakaroEvent> m_InFlightBatch;
+    private ref array<string> m_InFlightBatch;
 
     void FlushEvents()
     {
@@ -191,17 +191,20 @@ class TakaroBridge
         m_InFlightBatch = m_Queue.Drain(cfg.MaxEventsPerBatch);
         if (m_InFlightBatch.Count() == 0) return;
 
-        TakaroEventBatch batch = new TakaroEventBatch();
+        // Each entry is already a complete JSON object for one event. Stitch
+        // them into the batch envelope by hand so we don't lose per-type
+        // field shape (JsonSerializer would re-emit empty fields).
+        string body = "{\"events\":[";
         for (int i = 0; i < m_InFlightBatch.Count(); i++)
-            batch.events.Insert(m_InFlightBatch[i]);
-
-        string body;
-        JsonSerializer js = new JsonSerializer;
-        js.WriteToString(batch, false, body);
+        {
+            if (i > 0) body += ",";
+            body += m_InFlightBatch[i];
+        }
+        body += "]}";
 
         if (cfg.DryRun)
         {
-            TakaroLog.Info("[dry-run] Would POST " + batch.events.Count().ToString() + " events");
+            TakaroLog.Info("[dry-run] Would POST " + m_InFlightBatch.Count().ToString() + " events");
             m_InFlightBatch = null;
             return;
         }

@@ -325,6 +325,11 @@ private:
     HINTERNET hSession = nullptr;
     HINTERNET hConnect = nullptr;
     HINTERNET hWebSocket = nullptr;
+    // Serialises every WS-handle access. The receive thread can otherwise
+    // tear hWebSocket down while another thread is mid-send, which produces
+    // ERROR_WINHTTP_OPERATION_CANCELLED (4317) and silently drops the
+    // outgoing frame. WinHTTP itself doesn't synchronise the handle.
+    std::mutex wsMutex;
     std::thread wsThread;
     std::atomic<bool> running{false};
     std::atomic<bool> connected{false};
@@ -914,6 +919,7 @@ std::string TakaroDayZ::ExtractStringField(const std::string& json, const std::s
 }
 
 void TakaroDayZ::CloseHandles() {
+    std::lock_guard<std::mutex> g(wsMutex);
     if (hWebSocket) {
         WinHttpWebSocketClose(hWebSocket, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
         WinHttpCloseHandle(hWebSocket);
@@ -924,32 +930,45 @@ void TakaroDayZ::CloseHandles() {
 }
 
 bool TakaroDayZ::ConnectToTakaro() {
-    hSession = WinHttpOpen(L"DayZ-Takaro/0.2",
-                           WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) return false;
-    hConnect = WinHttpConnect(hSession, L"connect.takaro.io", 443, 0);
-    if (!hConnect) { CloseHandles(); return false; }
-    HINTERNET hReq = WinHttpOpenRequest(hConnect, L"GET", L"/", nullptr,
+    // Build the connection into local handles, then publish under wsMutex so
+    // SendRaw never sees a half-initialised state.
+    HINTERNET sess = WinHttpOpen(L"DayZ-Takaro/0.2",
+                                 WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                 WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!sess) return false;
+    HINTERNET conn = WinHttpConnect(sess, L"connect.takaro.io", 443, 0);
+    if (!conn) { WinHttpCloseHandle(sess); return false; }
+    HINTERNET hReq = WinHttpOpenRequest(conn, L"GET", L"/", nullptr,
                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                         WINHTTP_FLAG_SECURE);
-    if (!hReq) { CloseHandles(); return false; }
+    if (!hReq) { WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return false; }
     if (!WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
-        WinHttpCloseHandle(hReq); CloseHandles(); return false;
+        WinHttpCloseHandle(hReq); WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return false;
     }
     if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        WinHttpCloseHandle(hReq); CloseHandles(); return false;
+        WinHttpCloseHandle(hReq); WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return false;
     }
     if (!WinHttpReceiveResponse(hReq, nullptr)) {
-        WinHttpCloseHandle(hReq); CloseHandles(); return false;
+        WinHttpCloseHandle(hReq); WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return false;
     }
-    hWebSocket = WinHttpWebSocketCompleteUpgrade(hReq, 0);
+    HINTERNET ws = WinHttpWebSocketCompleteUpgrade(hReq, 0);
     WinHttpCloseHandle(hReq);
-    return hWebSocket != nullptr;
+    if (!ws) { WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return false; }
+
+    std::lock_guard<std::mutex> g(wsMutex);
+    hSession = sess;
+    hConnect = conn;
+    hWebSocket = ws;
+    return true;
 }
 
 void TakaroDayZ::SendRaw(const std::string& msg) {
+    // Hold wsMutex across the send so the receive thread can't tear down
+    // hWebSocket mid-call. Without this lock, a concurrent CloseHandles
+    // produces ERROR_WINHTTP_OPERATION_CANCELLED (4317) and the frame is
+    // lost — which Takaro then sees as a 10s request timeout.
+    std::lock_guard<std::mutex> g(wsMutex);
     if (!hWebSocket) return;
     DWORD r = WinHttpWebSocketSend(hWebSocket,
                                    WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
@@ -1200,13 +1219,32 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
         }
     }
 
-    // BE-RCON-backed handlers (when RCON is up):
+    // BE-RCON-backed handlers (when RCON is up). Some verbs are custom to our
+    // script mod and unknown to BE (help, tp, give, announce, etc.) — keep
+    // those on the script path even when BE is logged in, otherwise BE
+    // would answer "Unknown command".
     if (action == "executeConsoleCommand") {
-        if (beRcon && beRcon->LoggedIn()) { HandleExecConsoleCommandRcon(requestId, argsJson); return; }
+        if (beRcon && beRcon->LoggedIn()) {
+            std::string cmd = ExtractStringField(argsJson, "command");
+            std::string verb = cmd;
+            size_t sp = cmd.find(' ');
+            if (sp != std::string::npos) verb = cmd.substr(0, sp);
+            for (auto& c : verb) c = (char)tolower((unsigned char)c);
+            bool scriptOnly =
+                verb == "help" ||
+                verb == "tp" || verb == "teleport" ||
+                verb == "give" || verb == "giveitem" ||
+                verb == "listplayers" ||
+                verb == "shutdown" ||
+                verb == "announce" || verb == "banner";
+            if (!scriptOnly) { HandleExecConsoleCommandRcon(requestId, argsJson); return; }
+        }
     }
-    if (action == "sendMessage") {
-        if (beRcon && beRcon->LoggedIn()) { HandleSendMessageRcon(requestId, argsJson); return; }
-    }
+
+    // sendMessage always goes to the script mod so it can use Expansion's
+    // chat broadcast (clean "[Discord] Mad: hello" line, no "(Admin)"
+    // prefix). The BE RCON `say -1` path stays available for explicit `say`
+    // verb invocations via executeConsoleCommand.
 
     // Everything else: hand off to script mod via the local HTTP queue.
     QueueForScriptMod(requestId, action, argsJson);
@@ -1225,10 +1263,20 @@ void TakaroDayZ::WebSocketThread() {
                 continue;
             }
         }
+        // Snapshot the handle and run the blocking receive without the
+        // mutex held — otherwise sends would queue behind the receive.
+        // If the handle is closed mid-call WinHTTP returns an error and we
+        // take the reconnect path on the next loop iteration.
+        HINTERNET hLocal;
+        {
+            std::lock_guard<std::mutex> g(wsMutex);
+            hLocal = hWebSocket;
+        }
+        if (!hLocal) { connected = false; Sleep(100); continue; }
         BYTE buf[8192];
         DWORD bytes = 0;
         WINHTTP_WEB_SOCKET_BUFFER_TYPE bt;
-        DWORD r = WinHttpWebSocketReceive(hWebSocket, buf, sizeof(buf), &bytes, &bt);
+        DWORD r = WinHttpWebSocketReceive(hLocal, buf, sizeof(buf), &bytes, &bt);
         if (r == ERROR_SUCCESS && bytes > 0) {
             if (bt == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
                 bt == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {

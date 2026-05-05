@@ -311,14 +311,13 @@ class TakaroCommandDispatcher
 
         if (args.recipientGameId != "")
         {
-            PlayerIdentity id = FindIdentityByGameId(args.recipientGameId);
-            if (!id)
+            PlayerBase pb = FindPlayerByGameId(args.recipientGameId);
+            if (!pb)
             {
                 ReplyError(op, "Recipient not online: " + args.recipientGameId);
                 return;
             }
-            // Whisper: send only to that identity.
-            BroadcastSystemMessage(args.message, id);
+            BroadcastSystemMessage(args.message, pb);
         }
         else
         {
@@ -485,6 +484,8 @@ class TakaroCommandDispatcher
             rest = trimmed.Substring(firstSp + 1, trimmed.Length() - firstSp - 1);
             rest.TrimInPlace();
         }
+        // Verbs are case-insensitive — Help == help == HELP.
+        verb.ToLower();
 
         if (verb == "say")
         {
@@ -525,7 +526,7 @@ class TakaroCommandDispatcher
                 else { GetGame().DisconnectPlayer(kid); rawResult = "Kicked " + kgid; }
             }
         }
-        else if (verb == "ban" || verb == "addBan")
+        else if (verb == "ban" || verb == "addban")
         {
             // ban <gameId> [reason]
             string bgid;
@@ -540,7 +541,7 @@ class TakaroCommandDispatcher
                 rawResult = "Banned " + bgid;
             }
         }
-        else if (verb == "unban" || verb == "removeBan")
+        else if (verb == "unban" || verb == "removeban")
         {
             // unban <gameId>
             if (rest == "") { rawResult = "Usage: unban <gameId>"; success = false; }
@@ -566,7 +567,7 @@ class TakaroCommandDispatcher
                 }
             }
         }
-        else if (verb == "give" || verb == "giveItem")
+        else if (verb == "give" || verb == "giveitem")
         {
             // give <gameId> <classname> [amount]
             array<string> gparts = new array<string>;
@@ -591,7 +592,7 @@ class TakaroCommandDispatcher
                 }
             }
         }
-        else if (verb == "players" || verb == "listPlayers")
+        else if (verb == "players" || verb == "listplayers")
         {
             array<Man> ppl = new array<Man>;
             GetGame().GetPlayers(ppl);
@@ -602,6 +603,28 @@ class TakaroCommandDispatcher
                 if (!ppb) continue;
                 PlayerIdentity pid2 = ppb.GetIdentity();
                 if (pid2) rawResult += " " + pid2.GetName() + "(" + pid2.GetPlainId() + ")";
+            }
+        }
+        else if (verb == "announce" || verb == "banner")
+        {
+            // Loud center-screen banner via Expansion's BAGUETTE notification.
+            // Format: `announce <title> | <body>`. If no `|` present, the
+            // whole text becomes the body and title defaults to "Server".
+            if (rest == "") { rawResult = "Usage: announce <title> | <message>  (or: announce <message>)"; success = false; }
+            else
+            {
+                string atitle = "Server";
+                string abody = rest;
+                int barIdx = rest.IndexOf("|");
+                if (barIdx > 0)
+                {
+                    atitle = rest.Substring(0, barIdx);
+                    atitle.TrimInPlace();
+                    abody = rest.Substring(barIdx + 1, rest.Length() - barIdx - 1);
+                    abody.TrimInPlace();
+                }
+                BroadcastBanner(atitle, abody);
+                rawResult = "Banner sent: [" + atitle + "] " + abody;
             }
         }
         else
@@ -628,8 +651,10 @@ class TakaroCommandDispatcher
         h += "  tp <gameId> <x> <y> <z>             - teleport a player to world coordinates" + nl;
         h += "  give <gameId> <classname> [amount]  - spawn item(s) into the player's inventory" + nl;
         h += "  players                             - list every online player (name + gameId)" + nl;
+        h += "  announce <message>                  - center-screen banner to all players (Expansion BAGUETTE)" + nl;
+        h += "  announce <title> | <message>       -   ...with a custom title (default 'Server')" + nl;
         h += nl;
-        h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers." + nl;
+        h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers/banner." + nl;
         h += "Other RCON verbs route through BattlEye when the BE RCON connection is up.";
         return h;
     }
@@ -681,17 +706,27 @@ class TakaroCommandDispatcher
         return s;
     }
 
-    // Strip characters that would break our naive JSON serialization. Strings
-    // going into rawResult are short, server-controlled / echoed user input —
-    // dropping these chars is fine for our purpose.
+    // JSON-escape rawResult content so it survives Takaro's JSON parser
+    // and renders multi-line strings as actual newlines on the dashboard.
+    // Raw control chars in a JSON string value are invalid (Takaro rejects
+    // the whole response, which surfaces as a 10s request timeout). We
+    // escape newlines/CRs/tabs as the two-char JSON escape sequences and
+    // drop double-quotes.
+    //
+    // CParser gotcha: `"\\"` literals break Enforce's parser, but `"\\n"`
+    // parses fine because the lexer sees `\\` as one escaped backslash
+    // followed by a regular `n` — net result is the 2-char string `\n`.
     string JsonSafeString(string s)
     {
         string out_s = s;
-        // Replace double-quote (ASCII 34) with single quote (ASCII 39).
-        // Built via Substring on a literal so we don't use a backslash-escape
-        // for the double-quote, which Enforce Script's CParser handles oddly.
         string dq = "\"";
         out_s.Replace(dq, "'");
+        string nl = "\n";
+        out_s.Replace(nl, "\\n");
+        string cr = "\r";
+        out_s.Replace(cr, "\\r");
+        string tab = "\t";
+        out_s.Replace(tab, "\\t");
         return out_s;
     }
 
@@ -916,33 +951,72 @@ class TakaroCommandDispatcher
         return null;
     }
 
-    void BroadcastSystemMessage(string msg, PlayerIdentity onlyTo)
+    void BroadcastSystemMessage(string msg, PlayerBase onlyTo)
     {
-        // Use vanilla SendChatToServer / chat broadcast via the standard
-        // ChatMessageEventTypeID broadcast. Most servers route system messages
-        // through "MissionServer.NotifyAll(msg)" or a Chat helper class.
-        Param1<string> param = new Param1<string>(msg);
+        // With Expansion loaded we use the global chat channel (CCGlobal,
+        // renders as "(Global)" — neutral white text, not the gaudy pink of
+        // CCSystem) and prepend a Discord-coloured "[D]" tag inline using
+        // Enforce TextWidget markup. The body itself stays the default chat
+        // colour. If markup isn't honoured by the chat widget the tags
+        // would show as literal text — iterate visibly if so.
+        //
+        // Discord blurple #5865F2 ≈ rgba(0.345, 0.396, 0.949, 1).
+#ifdef EXPANSIONMOD
+        ExpansionGlobalChatModule mod;
+        if (CF_Modules<ExpansionGlobalChatModule>.Get(mod))
+        {
+            string body = "<color #5865F2>[D]</color> " + msg;
+            ExpansionChatMessageEventParams data = new ExpansionChatMessageEventParams(
+                ExpansionChatChannels.CCGlobal, "", body, "", "");
+            auto rpc = mod.Expansion_CreateRPC("RPC_AddChatMessage");
+            rpc.Write(data);
+            if (onlyTo && onlyTo.GetIdentity())
+                rpc.Expansion_Send(true, onlyTo.GetIdentity());
+            else
+                rpc.Expansion_Send(true);
+            TakaroLog.Info("BROADCAST (chat): " + msg);
+            return;
+        }
+#endif
         if (onlyTo)
         {
-            GetGame().RPCSingleParam(null, ERPCs.RPC_USER_SYNC_PERMISSIONS, param, true, onlyTo);
-            // Best-effort: also send via ChatPlayerComponent if available.
+            NotificationSystem.SendNotificationToPlayerExtended(onlyTo, 8.0, "Discord", msg, "");
         }
         else
         {
-            // Broadcast to all by iterating players.
             array<Man> players = new array<Man>;
             GetGame().GetPlayers(players);
             for (int i = 0; i < players.Count(); i++)
             {
                 PlayerBase pb = PlayerBase.Cast(players[i]);
                 if (!pb) continue;
-                PlayerIdentity id = pb.GetIdentity();
-                if (id)
-                    GetGame().RPCSingleParam(null, ERPCs.RPC_USER_SYNC_PERMISSIONS, param, true, id);
+                NotificationSystem.SendNotificationToPlayerExtended(pb, 8.0, "Discord", msg, "");
             }
         }
-        // Also write to RPT so admins can see it server-side.
-        TakaroLog.Info("BROADCAST: " + msg);
+        TakaroLog.Info("BROADCAST (popup): " + msg);
+    }
+
+    // Loud center-screen banner shown to every connected player. Uses
+    // Expansion's BAGUETTE notification when Expansion is loaded; falls
+    // back to popup notifications otherwise.
+    void BroadcastBanner(string title, string msg)
+    {
+#ifdef EXPANSIONMOD
+        // Use Expansion's built-in "Info" icon so the banner doesn't render
+        // with an empty white box on the left edge.
+        ExpansionNotification(title, msg, EXPANSION_NOTIFICATION_ICON_INFO, COLOR_EXPANSION_NOTIFICATION_INFO, 8, ExpansionNotificationType.BAGUETTE).Create(NULL);
+        TakaroLog.Info("ANNOUNCE (banner): " + title + " — " + msg);
+        return;
+#endif
+        array<Man> players = new array<Man>;
+        GetGame().GetPlayers(players);
+        for (int i = 0; i < players.Count(); i++)
+        {
+            PlayerBase pb = PlayerBase.Cast(players[i]);
+            if (!pb) continue;
+            NotificationSystem.SendNotificationToPlayerExtended(pb, 10.0, title, msg, "");
+        }
+        TakaroLog.Info("ANNOUNCE (popup): " + title + " — " + msg);
     }
 
     // Per-arg-type parsers. We can't use a generic Class-typed parser because
