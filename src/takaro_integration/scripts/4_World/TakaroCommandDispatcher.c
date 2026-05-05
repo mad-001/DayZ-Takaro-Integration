@@ -500,16 +500,7 @@ class TakaroCommandDispatcher
         {
             rawResult = "Shutdown initiated";
             ReplyOk(op, BuildCommandOutput(rawResult, true));
-            // Disconnect everyone first so persistence flushes, then exit.
-            array<Man> all = new array<Man>;
-            GetGame().GetPlayers(all);
-            for (int i = 0; i < all.Count(); i++) {
-                PlayerBase pb = PlayerBase.Cast(all[i]);
-                if (!pb) continue;
-                PlayerIdentity pid = pb.GetIdentity();
-                if (pid) GetGame().DisconnectPlayer(pid);
-            }
-            GetGame().RequestExit(1);
+            DisconnectAllAndExit();
             return;
         }
         else if (verb == "kick")
@@ -730,11 +721,21 @@ class TakaroCommandDispatcher
         return out_s;
     }
 
-    void HandleShutdown(TakaroOperation op)
+    // Drain delay between disconnecting all players and asking the engine
+    // to exit. DisconnectPlayer enqueues the player-save tasks but they're
+    // processed asynchronously — exiting too fast can lose the last
+    // seconds of state (last item crafted, last base part placed). 5s is
+    // generous; persistence finishes well within that window in practice.
+    static const int SHUTDOWN_EXIT_DELAY_MS = 5000;
+
+    void TakaroFinalExit()
     {
-        TakaroLog.Warn("Shutdown requested by Takaro");
-        ReplyOk(op, "{}");
-        // Disconnect all players first so persistence has a chance to flush.
+        TakaroLog.Info("Engine exit after disconnect drain");
+        GetGame().RequestExit(1);
+    }
+
+    void DisconnectAllAndExit()
+    {
         array<Man> players = new array<Man>;
         GetGame().GetPlayers(players);
         for (int i = 0; i < players.Count(); i++)
@@ -744,9 +745,16 @@ class TakaroCommandDispatcher
             PlayerIdentity id = pb.GetIdentity();
             if (id) GetGame().DisconnectPlayer(id);
         }
-        // Tell the engine to exit. RequestExit is the canonical clean-shutdown
-        // entrypoint; the integer reason code is informational (1 = admin-shutdown).
-        GetGame().RequestExit(1);
+        // Schedule the engine exit on the system call queue so the
+        // disconnect-driven persistence saves get a chance to flush.
+        GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.TakaroFinalExit, SHUTDOWN_EXIT_DELAY_MS, false);
+    }
+
+    void HandleShutdown(TakaroOperation op)
+    {
+        TakaroLog.Warn("Shutdown requested by Takaro");
+        ReplyOk(op, "{}");
+        DisconnectAllAndExit();
     }
 
     // Walks CfgVehicles and returns spawnable items as IItemDTO[]. Filters by
