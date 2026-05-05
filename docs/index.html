@@ -91,14 +91,10 @@
         <h2>Install</h2>
         <ol>
             <li>Extract the release ZIP into your DayZ server folder (next to <code>DayZServer_x64.exe</code>). You'll have <code>@TakaroIntegration\</code>, <code>dayz_takaro.dll</code>, and <code>winmm.dll</code>.</li>
-            <li>In Takaro, create a Generic game server and copy its <strong>Identity Token</strong> and <strong>Registration Token</strong>.</li>
-            <li>Create <code>profiles\TakaroIntegration\config.json</code>:
-                <pre><code>{
-    "IdentityToken": "your-identity-token",
-    "RegistrationToken": "your-registration-token",
-    "GameServerId": "MyDayZServer",
-    "TakaroApiUrl": "http://localhost:8089"
-}</code></pre>
+            <li>In Takaro, create a Generic game server and copy its <strong>Registration Token</strong>.</li>
+            <li>Create <code>takaro_config.txt</code> in your DayZ server root (next to <code>DayZServer_x64.exe</code>):
+                <pre><code>registrationToken=your-registration-token
+serverName=MyDayZServer</code></pre>
             </li>
             <li>Configure BattlEye RCON in <code>battleye\beserver_x64.cfg</code> with CRLF line endings:
                 <pre><code>RConPassword YourSecurePassword
