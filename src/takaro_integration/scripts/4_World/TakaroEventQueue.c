@@ -110,7 +110,7 @@ class TakaroEventFactory
         s += q + "gameId" + q + ":" + q + sid + q + ",";
         s += q + "name" + q + ":" + q + name + q + ",";
         s += q + "steamId" + q + ":" + q + sid + q + ",";
-        s += q + "platformId" + q + ":" + q + "dayz:" + bisid + q + ",";
+        s += q + "platformId" + q + ":" + q + bisid + q + ",";
         s += q + "ping" + q + ":" + ping.ToString();
         s += "}";
         return s;

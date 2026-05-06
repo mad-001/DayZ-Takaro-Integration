@@ -929,6 +929,32 @@ class TakaroCommandDispatcher
 
     // ---- helpers -------------------------------------------------------
 
+    // Liberal ID matcher — accepts any form Takaro or a copy-paste might
+    // produce so visit/tp/kick/give Just Work:
+    //   - bare Steam64                         "76561198148612622"
+    //   - Takaro-style platformId              "steam:76561198148612622"
+    //   - bare BE GUID                         "wI_qp9oOtv91...HLZedX_sMxDA"
+    //   - BE GUID with "=" suffix              "wI_qp9oOtv91...HLZedX_sMxDA="
+    //   - DLL-emitted platformId               "dayz:wI_qp9oOtv91..."
+    bool IdMatches(PlayerIdentity id, string needle)
+    {
+        if (!id || needle == "") return false;
+        string n = needle;
+        // Strip known prefixes ("steam:", "dayz:")
+        if (n.IndexOf("steam:") == 0) n = n.Substring(6, n.Length() - 6);
+        else if (n.IndexOf("dayz:") == 0) n = n.Substring(5, n.Length() - 5);
+        // Strip trailing "="
+        int neqIdx = n.IndexOf("=");
+        if (neqIdx >= 0) n = n.Substring(0, neqIdx);
+
+        if (id.GetPlainId() == n) return true;
+
+        string bisid = id.GetId();
+        int eqIdx = bisid.IndexOf("=");
+        if (eqIdx >= 0) bisid = bisid.Substring(0, eqIdx);
+        return bisid == n;
+    }
+
     PlayerIdentity FindIdentityByGameId(string gameId)
     {
         array<Man> players = new array<Man>;
@@ -938,7 +964,7 @@ class TakaroCommandDispatcher
             PlayerBase pb = PlayerBase.Cast(players[i]);
             if (!pb) continue;
             PlayerIdentity id = pb.GetIdentity();
-            if (id && id.GetPlainId() == gameId)
+            if (IdMatches(id, gameId))
                 return id;
         }
         return null;
@@ -953,7 +979,7 @@ class TakaroCommandDispatcher
             PlayerBase pb = PlayerBase.Cast(players[i]);
             if (!pb) continue;
             PlayerIdentity id = pb.GetIdentity();
-            if (id && id.GetPlainId() == gameId)
+            if (IdMatches(id, gameId))
                 return pb;
         }
         return null;
