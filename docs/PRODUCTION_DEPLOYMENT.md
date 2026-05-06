@@ -15,12 +15,8 @@ Two pieces, both server-side only:
    - Built from `src/takaro_integration/` and packed to `TakaroIntegration.pbo`
    - Hooks player connect/disconnect/death and POSTs events to the DLL over `localhost`
    - Polls the DLL for queued Takaro requests and dispatches them via vanilla game APIs
+   - Includes an Expansion-only chat hook gated by `#ifdef EXPANSIONMOD` — when DayZ-Expansion is loaded the mod automatically captures `chat-message` events; on vanilla servers the gated block is excluded at preprocess time
    - Server-only — clients never download it
-
-3. **Optional Expansion compat addon** `@TakaroIntegration_Expansion` (load if `@DayZ-Expansion-Bundle` is on the server):
-   - Hooks `ExpansionGlobalChatModule.AddChatMessage_Server` and routes chat into the Takaro bridge
-   - Without this addon, `chat-message` events are not emitted (the rest still works)
-   - Built from `src/takaro_integration_expansion/`, packed to `TakaroIntegration_Expansion.pbo`
 
 ## Pre-flight
 
@@ -66,16 +62,6 @@ if (Test-Path "$server\@TakaroIntegration") {
     Remove-Item "$server\@TakaroIntegration" -Recurse -Force
 }
 Copy-Item "$repo\@TakaroIntegration" "$server\@TakaroIntegration" -Recurse -Force
-
-# 6. (Optional) Deploy the Expansion compat addon (only if Expansion is loaded)
-wsl -e python3 /home/zmedh/Takaro-Projects/DayZ/scripts/pack_pbo.py `
-    /home/zmedh/Takaro-Projects/DayZ/src/takaro_integration_expansion `
-    /home/zmedh/Takaro-Projects/DayZ/@TakaroIntegration_Expansion/Addons/TakaroIntegration_Expansion.pbo `
-    --prefix TakaroIntegration_Expansion
-if (Test-Path "$server\@TakaroIntegration_Expansion") {
-    Remove-Item "$server\@TakaroIntegration_Expansion" -Recurse -Force
-}
-Copy-Item "$repo\@TakaroIntegration_Expansion" "$server\@TakaroIntegration_Expansion" -Recurse -Force
 ```
 
 ## Wire into the server start command
@@ -93,7 +79,7 @@ Add (note the new `-serverMod=` line):
 ```bat
 DayZServer_x64.exe -config=serverDZ.cfg -port=2302 -profiles=profiles ^
     -mod="@CF;@DabsFramework;@DayZ-Expansion-Licensed;@DayZ-Expansion-Bundle;@BaseBuildingPlus;@BBP_ExpansionCompat;@TraderPlus;@VPPAdminTools" ^
-    -serverMod="@TakaroIntegration;@TakaroIntegration_Expansion" ^
+    -serverMod="@TakaroIntegration" ^
     -dologs -adminlog -netlog -freezecheck
 ```
 
@@ -138,7 +124,7 @@ Documented for you so the dashboard's "missing data" warnings make sense:
 
 | Feature | Status |
 | --- | --- |
-| `chat-message` events | **available via `@TakaroIntegration_Expansion`** if Expansion is loaded; not available on a pure-vanilla server (no clean server-side chat hook in vanilla DayZ). |
+| `chat-message` events | Captured automatically when DayZ-Expansion is loaded (built into the main mod, gated by `#ifdef EXPANSIONMOD`). Not available on a pure-vanilla server — vanilla DayZ has no clean server-side chat hook. |
 | Real ban list write | partial — falls back to kick. Needs VPP compat addon writing to `BanList.json`. |
 | `getPlayerLocation` real positions | returns `{0,0,0}` placeholder. PlayerBase position is available in script — drop a real reader in v1.5. |
 | `getPlayerInventory` | returns `[]`. Inventory walk is doable but volumetric — v1.5. |
