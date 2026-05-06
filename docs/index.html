@@ -139,9 +139,12 @@
         </ul>
 
         <h2>Step 4 — Install the Bridge Files</h2>
-        <p>Download the latest release ZIP. Extract it directly into your DayZ server directory (the folder containing <code>DayZServer_x64.exe</code>).</p>
 
-        <p>After extraction, your server folder should contain three new things:</p>
+        <div class="info-box">
+            <strong>Easy install (recommended).</strong> Download the latest release ZIP, extract it anywhere, then right-click <code>install.ps1</code> → <strong>Run with PowerShell</strong>. The installer pops up the token instructions, prompts you for the registration token + your DayZ server folder, and copies everything into place. When it finishes, jump to <a href="#step-launch">Step 7</a> (skip the manual Step 4 and Step 5 below).
+        </div>
+
+        <p><strong>Or do it by hand:</strong> extract the release ZIP directly into your DayZ server directory (the folder containing <code>DayZServer_x64.exe</code>). After extraction, your server folder should contain three new things:</p>
         <pre><code>C:\path\to\dayz\server\
 ├── DayZServer_x64.exe          (was already there)
 ├── @TakaroIntegration\         (new — the script mod)
@@ -155,6 +158,7 @@
         </div>
 
         <h2>Step 5 — Configure the Bridge (<code>takaro_config.txt</code>)</h2>
+        <p>(The easy installer in Step 4 already wrote this file with your token. Skip ahead unless you want to tweak it.)</p>
         <p>Create a file named <code>takaro_config.txt</code> in your DayZ server root (next to <code>DayZServer_x64.exe</code>) with the following content:</p>
         <pre><code>registrationToken=YOUR-REGISTRATION-TOKEN-FROM-TAKARO
 serverName=My DayZ Server</code></pre>
@@ -196,7 +200,7 @@ RestrictRCon 0</code></pre>
 
         <p>Whenever you change the cfg, copy it to <strong>both</strong> locations.</p>
 
-        <h2>Step 7 — Launch the Server</h2>
+        <h2 id="step-launch">Step 7 — Launch the Server</h2>
         <p>Use this <code>start_server.bat</code> as a starting template (place it next to <code>DayZServer_x64.exe</code>). Add any of your other workshop mods to the <code>-mod=</code> list as you normally would:</p>
         <pre><code>@echo off
 cd /d "C:\path\to\your\dayz\server"
