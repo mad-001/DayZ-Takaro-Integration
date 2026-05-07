@@ -31,6 +31,7 @@
 #include <condition_variable>
 #include <functional>
 #include <cstring>
+#include <array>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ws2_32.lib")
@@ -40,7 +41,11 @@
 class SimpleJSON {
 public:
     static std::string escape(const std::string& s) {
+        // Single allocation worst-case (every char doubled); escape() runs on
+        // every WS-bound string field, so per-char string growth (which
+        // reallocates) used to dominate the field-encoding cost.
         std::string r;
+        r.reserve(s.size() + (s.size() >> 3));
         for (char c : s) {
             if (c == '"' || c == '\\') r += '\\';
             r += c;
@@ -48,11 +53,26 @@ public:
         return r;
     }
     static std::string object(const std::string& content) { return "{" + content + "}"; }
-    static std::string pair(const std::string& k, const std::string& v) {
-        return "\"" + escape(k) + "\":\"" + escape(v) + "\"";
+    // Static-key, escaped-value pair. Every key in this codebase is a string
+    // literal with no quotes/backslashes — skip the wasted escape() pass
+    // over the key and inline the value escape into one pre-reserved buffer.
+    static std::string pairLit(const char* k, const std::string& v) {
+        std::string r;
+        r.reserve(strlen(k) + v.size() + 6);
+        r.push_back('"'); r.append(k); r.append("\":\"");
+        for (char c : v) {
+            if (c == '"' || c == '\\') r += '\\';
+            r += c;
+        }
+        r.push_back('"');
+        return r;
     }
-    static std::string objectPair(const std::string& k, const std::string& v) {
-        return "\"" + escape(k) + "\":" + v;
+    // Static-key variant for objects (value is already a JSON fragment).
+    static std::string objectPairLit(const char* k, const std::string& v) {
+        std::string r;
+        r.reserve(strlen(k) + v.size() + 4);
+        r.push_back('"'); r.append(k); r.append("\":"); r.append(v);
+        return r;
     }
 };
 
@@ -103,15 +123,19 @@ private:
 // CRC32 + MD5 helpers (used by BattlEye RCON framing and Steam64→BE-GUID)
 // ====================================================================
 
-static uint32_t Crc32_Table(uint32_t i) {
-    uint32_t c = i;
-    for (int j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-    return c;
-}
 static uint32_t Crc32(const uint8_t* data, size_t len) {
-    static uint32_t table[256];
-    static bool init = false;
-    if (!init) { for (int i = 0; i < 256; i++) table[i] = Crc32_Table((uint32_t)i); init = true; }
+    // C++11 magic statics give thread-safe one-shot init; prior `static bool
+    // init` flag was a benign race on a multi-threaded RCON path.
+    static const auto table = []{
+        std::array<uint32_t, 256> t{};
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int j = 0; j < 8; j++)
+                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            t[i] = c;
+        }
+        return t;
+    }();
     uint32_t crc = 0xFFFFFFFFu;
     for (size_t i = 0; i < len; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
     return crc ^ 0xFFFFFFFFu;
@@ -358,7 +382,6 @@ private:
     bool ConnectToTakaro();
     void SendRaw(const std::string& msg);
     void SendIdentify();
-    std::string ExtractField(const std::string& m, const std::string& field);
     void HandleMessage(const std::string& m);
     void WebSocketThread();
     void HeartbeatLoop();
@@ -544,8 +567,8 @@ void LocalHttpServer::HandleClient(SOCKET client) {
             code = 503; outBody = "{\"error\":\"not-yet-identified\"}";
         } else {
             outBody = SimpleJSON::object(
-                SimpleJSON::pair("identityToken", m_parent->GetIdentityToken()) + "," +
-                SimpleJSON::pair("gameServerId", m_parent->GetGameServerId())
+                SimpleJSON::pairLit("identityToken", m_parent->GetIdentityToken()) + "," +
+                SimpleJSON::pairLit("gameServerId", m_parent->GetGameServerId())
             );
         }
     } else if (method == "POST" && path.find("/gameserver/") == 0 && path.size() > 12) {
@@ -644,9 +667,9 @@ void LocalHttpServer::HandleClient(SOCKET client) {
                 if (!first) ops += ",";
                 first = false;
                 ops += SimpleJSON::object(
-                    SimpleJSON::pair("operationId", op.operationId) + "," +
-                    SimpleJSON::pair("action", op.action) + "," +
-                    SimpleJSON::pair("argsJson", op.argsJson)
+                    SimpleJSON::pairLit("operationId", op.operationId) + "," +
+                    SimpleJSON::pairLit("action", op.action) + "," +
+                    SimpleJSON::pairLit("argsJson", op.argsJson)
                 );
                 m_operations.pop();
             }
@@ -681,19 +704,16 @@ void BeRcon::Stop() {
 
 void BeRcon::SendPacket(uint8_t type, const std::vector<uint8_t>& payload) {
     if (m_sock == INVALID_SOCKET) return;
-    // CRC covers 0xFF + type + payload
-    std::vector<uint8_t> crcRegion;
-    crcRegion.reserve(payload.size() + 2);
-    crcRegion.push_back(0xFF);
-    crcRegion.push_back(type);
-    crcRegion.insert(crcRegion.end(), payload.begin(), payload.end());
-    uint32_t crc = Crc32(crcRegion.data(), crcRegion.size());
-    std::vector<uint8_t> packet;
-    packet.reserve(crcRegion.size() + 6);
-    packet.push_back('B'); packet.push_back('E');
-    packet.push_back((uint8_t)crc); packet.push_back((uint8_t)(crc>>8));
-    packet.push_back((uint8_t)(crc>>16)); packet.push_back((uint8_t)(crc>>24));
-    packet.insert(packet.end(), crcRegion.begin(), crcRegion.end());
+    // Layout: 'B' 'E' <crc:LE32> 0xFF <type> <payload>
+    // CRC covers 0xFF + type + payload (the slice from index 6 onward).
+    std::vector<uint8_t> packet(8 + payload.size());
+    packet[0] = 'B'; packet[1] = 'E';
+    packet[6] = 0xFF; packet[7] = type;
+    if (!payload.empty())
+        memcpy(packet.data() + 8, payload.data(), payload.size());
+    uint32_t crc = Crc32(packet.data() + 6, 2 + payload.size());
+    packet[2] = (uint8_t)crc;        packet[3] = (uint8_t)(crc >> 8);
+    packet[4] = (uint8_t)(crc >> 16); packet[5] = (uint8_t)(crc >> 24);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons((u_short)m_cfg.port);
@@ -980,32 +1000,24 @@ void TakaroDayZ::SendRaw(const std::string& msg) {
 
 void TakaroDayZ::SendIdentify() {
     std::string m = SimpleJSON::object(
-        SimpleJSON::pair("type", "identify") + "," +
-        SimpleJSON::objectPair("payload", SimpleJSON::object(
-            SimpleJSON::pair("identityToken", identityToken) + "," +
-            SimpleJSON::pair("registrationToken", registrationToken) + "," +
-            SimpleJSON::pair("name", serverName)
+        SimpleJSON::pairLit("type", "identify") + "," +
+        SimpleJSON::objectPairLit("payload", SimpleJSON::object(
+            SimpleJSON::pairLit("identityToken", identityToken) + "," +
+            SimpleJSON::pairLit("registrationToken", registrationToken) + "," +
+            SimpleJSON::pairLit("name", serverName)
         ))
     );
     SendRaw(m);
 }
 
-std::string TakaroDayZ::ExtractField(const std::string& m, const std::string& f) {
-    std::string s = "\"" + f + "\":\"";
-    size_t p = m.find(s);
-    if (p == std::string::npos) return "";
-    p += s.length();
-    size_t e = m.find("\"", p);
-    return e == std::string::npos ? "" : m.substr(p, e - p);
-}
 
 void TakaroDayZ::ForwardEventToWs(const std::string& type, const std::string& dataJson) {
     if (!connected || !hWebSocket) return;
     // Wrap into Takaro gameEvent shape.
     std::string msg = SimpleJSON::object(
-        SimpleJSON::pair("type", "gameEvent") + "," +
+        SimpleJSON::pairLit("type", "gameEvent") + "," +
         "\"payload\":{" +
-            SimpleJSON::pair("type", type) + "," +
+            SimpleJSON::pairLit("type", type) + "," +
             "\"data\":" + dataJson +
         "}"
     );
@@ -1055,17 +1067,17 @@ void TakaroDayZ::ForwardResponse(const std::string& opId, bool ok,
             coerceField("online");
 
         std::string msg = SimpleJSON::object(
-            SimpleJSON::pair("type", "response") + "," +
-            SimpleJSON::pair("requestId", opId) + "," +
+            SimpleJSON::pairLit("type", "response") + "," +
+            SimpleJSON::pairLit("requestId", opId) + "," +
             "\"payload\":" + payload
         );
         SendRaw(msg);
     } else {
         std::string msg = SimpleJSON::object(
-            SimpleJSON::pair("type", "error") + "," +
-            SimpleJSON::pair("requestId", opId) + "," +
-            SimpleJSON::objectPair("payload", SimpleJSON::object(
-                SimpleJSON::pair("message", errorMessage.empty() ? "unknown" : errorMessage)
+            SimpleJSON::pairLit("type", "error") + "," +
+            SimpleJSON::pairLit("requestId", opId) + "," +
+            SimpleJSON::objectPairLit("payload", SimpleJSON::object(
+                SimpleJSON::pairLit("message", errorMessage.empty() ? "unknown" : errorMessage)
             ))
         );
         SendRaw(msg);
@@ -1075,8 +1087,8 @@ void TakaroDayZ::ForwardResponse(const std::string& opId, bool ok,
 
 void TakaroDayZ::HandleTestReachability(const std::string& requestId) {
     std::string msg = SimpleJSON::object(
-        SimpleJSON::pair("type", "response") + "," +
-        SimpleJSON::pair("requestId", requestId) + "," +
+        SimpleJSON::pairLit("type", "response") + "," +
+        SimpleJSON::pairLit("requestId", requestId) + "," +
         "\"payload\":{\"connectable\":true,\"reason\":null}"
     );
     SendRaw(msg);
@@ -1084,8 +1096,8 @@ void TakaroDayZ::HandleTestReachability(const std::string& requestId) {
 
 void TakaroDayZ::HandleListEmpty(const std::string& requestId) {
     std::string msg = SimpleJSON::object(
-        SimpleJSON::pair("type", "response") + "," +
-        SimpleJSON::pair("requestId", requestId) + "," +
+        SimpleJSON::pairLit("type", "response") + "," +
+        SimpleJSON::pairLit("requestId", requestId) + "," +
         "\"payload\":[]"
     );
     SendRaw(msg);
@@ -1097,8 +1109,8 @@ void TakaroDayZ::HandleExecConsoleCommandRcon(const std::string& requestId, cons
         // Send back failure
         std::string payload = "{\"rawResult\":\"\",\"success\":false,\"errorMessage\":\"empty command\"}";
         std::string msg = SimpleJSON::object(
-            SimpleJSON::pair("type","response") + "," +
-            SimpleJSON::pair("requestId", requestId) + "," +
+            SimpleJSON::pairLit("type","response") + "," +
+            SimpleJSON::pairLit("requestId", requestId) + "," +
             "\"payload\":" + payload);
         SendRaw(msg);
         return;
@@ -1108,11 +1120,11 @@ void TakaroDayZ::HandleExecConsoleCommandRcon(const std::string& requestId, cons
         raw = beRcon->SendSync(command, 5000);
     }
     std::string payload = SimpleJSON::object(
-        SimpleJSON::pair("rawResult", raw) + ",\"success\":true"
+        SimpleJSON::pairLit("rawResult", raw) + ",\"success\":true"
     );
     std::string msg = SimpleJSON::object(
-        SimpleJSON::pair("type","response") + "," +
-        SimpleJSON::pair("requestId", requestId) + "," +
+        SimpleJSON::pairLit("type","response") + "," +
+        SimpleJSON::pairLit("requestId", requestId) + "," +
         "\"payload\":" + payload
     );
     SendRaw(msg);
@@ -1125,8 +1137,8 @@ void TakaroDayZ::HandleSendMessageRcon(const std::string& requestId, const std::
     std::string recipient = ExtractStringField(argsJson, "recipientGameId");
     if (text.empty()) {
         std::string msg = SimpleJSON::object(
-            SimpleJSON::pair("type","response") + "," +
-            SimpleJSON::pair("requestId", requestId) + ",\"payload\":{}");
+            SimpleJSON::pairLit("type","response") + "," +
+            SimpleJSON::pairLit("requestId", requestId) + ",\"payload\":{}");
         SendRaw(msg);
         return;
     }
@@ -1145,8 +1157,8 @@ void TakaroDayZ::HandleSendMessageRcon(const std::string& requestId, const std::
     std::string cmd = "say -1 " + text;
     beRcon->SendAsync(cmd);
     std::string msg = SimpleJSON::object(
-        SimpleJSON::pair("type","response") + "," +
-        SimpleJSON::pair("requestId", requestId) + ",\"payload\":{}");
+        SimpleJSON::pairLit("type","response") + "," +
+        SimpleJSON::pairLit("requestId", requestId) + ",\"payload\":{}");
     SendRaw(msg);
     Log("[Takaro][RCON] say -1 " + text);
 }
@@ -1174,15 +1186,15 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
         if (m.find("\"error\"") != std::string::npos) {
             Log("[Takaro] identify FAILED: " + m);
         } else {
-            gameServerId = ExtractField(m, "gameServerId");
+            gameServerId = ExtractStringField(m, "gameServerId");
             Log("[Takaro] identified, gameServerId=" + gameServerId);
         }
         return;
     }
     if (m.find("\"type\":\"request\"") == std::string::npos) return;
 
-    std::string requestId = ExtractField(m, "requestId");
-    std::string action = ExtractField(m, "action");
+    std::string requestId = ExtractStringField(m, "requestId");
+    std::string action = ExtractStringField(m, "action");
 
     // Built-ins handled directly (no script mod needed):
     if (action == "testReachability") { HandleTestReachability(requestId); return; }
@@ -1306,7 +1318,8 @@ void TakaroDayZ::WebSocketThread() {
             Sleep(5000);
             recvAccum.clear();  // drop any half-received message on disconnect
         }
-        Sleep(10);
+        // No tail Sleep — WinHttpWebSocketReceive blocks until data, so the
+        // loop already idles cooperatively.
     }
 }
 
@@ -1457,10 +1470,10 @@ bool TakaroDayZ::ShouldForwardLogLine(const std::string& line) {
 void TakaroDayZ::ForwardLogLine(const std::string& line) {
     if (!connected || !hWebSocket) return;
     std::string body = SimpleJSON::object(
-        SimpleJSON::pair("type", "gameEvent") + "," +
+        SimpleJSON::pairLit("type", "gameEvent") + "," +
         "\"payload\":{" +
-            SimpleJSON::pair("type", "log") + "," +
-            "\"data\":{" + SimpleJSON::pair("msg", line) + "}" +
+            SimpleJSON::pairLit("type", "log") + "," +
+            "\"data\":{" + SimpleJSON::pairLit("msg", line) + "}" +
         "}"
     );
     SendRaw(body);
