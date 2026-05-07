@@ -126,14 +126,16 @@ class TakaroBridge
         TakaroLog.Debug("event: player-connected " + identity.GetName());
     }
 
-    void OnPlayerDisconnected(PlayerBase player)
+    // identity + uid come straight from MissionServer.PlayerDisconnected;
+    // player may already be null/deleted by the time we're called.
+    void OnPlayerDisconnected(PlayerBase player, PlayerIdentity identity, string uid)
     {
         if (!m_Initialized) return;
-        if (!player) return;
-        PlayerIdentity id = player.GetIdentity();
-        m_Queue.Enqueue(TakaroEventFactory.Disconnected(id, player));
-        if (id)
-            TakaroLog.Debug("event: player-disconnected " + id.GetName());
+        m_Queue.Enqueue(TakaroEventFactory.Disconnected(identity, player, uid));
+        if (identity)
+            TakaroLog.Debug("event: player-disconnected " + identity.GetName());
+        else
+            TakaroLog.Debug("event: player-disconnected uid=" + uid);
     }
 
     void OnChatMessage(PlayerIdentity sender, string channel, string text)

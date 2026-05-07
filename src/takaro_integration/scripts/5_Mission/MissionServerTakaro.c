@@ -44,11 +44,14 @@ modded class MissionServer
             m_TakaroBridge.OnPlayerConnected(player, identity);
     }
 
-    override void InvokeOnDisconnect(PlayerBase player)
+    // PlayerDisconnected is the reliable hook — InvokeOnDisconnect is called
+    // by it but only when the player character still exists, which is often
+    // not the case once the logout timer expires. Hook the outer call.
+    override void PlayerDisconnected(PlayerBase player, PlayerIdentity identity, string uid)
     {
-        if (m_TakaroBridge && player)
-            m_TakaroBridge.OnPlayerDisconnected(player);
-        super.InvokeOnDisconnect(player);
+        if (m_TakaroBridge)
+            m_TakaroBridge.OnPlayerDisconnected(player, identity, uid);
+        super.PlayerDisconnected(player, identity, uid);
     }
 
     // Vanilla chat hook. Server-side OnEvent fires for ChatMessageEventTypeID

@@ -89,6 +89,7 @@ class ResultPlayerInfo
     string gameId;
     string name;
     string steamId;
+    string platformId;
     string ip;
     int ping;
     bool online;
@@ -215,6 +216,7 @@ class TakaroCommandDispatcher
             info.gameId = id.GetPlainId();
             info.name = id.GetName();
             info.steamId = id.GetPlainId();
+            info.platformId = BuildPlatformId(id);
             info.ping = id.GetPingAct();
             info.online = true;
             list.players.Insert(info);
@@ -237,6 +239,7 @@ class TakaroCommandDispatcher
         info.gameId = id.GetPlainId();
         info.name = id.GetName();
         info.steamId = id.GetPlainId();
+        info.platformId = BuildPlatformId(id);
         info.ping = id.GetPingAct();
         info.online = true;
         ReplyOk(op, SerializePlayerInfo(info));
@@ -558,6 +561,28 @@ class TakaroCommandDispatcher
                 }
             }
         }
+        else if (verb == "visit")
+        {
+            // visit <requesterId> <targetId> — teleport requester to target's
+            // current world position. IDs accept any form IdMatches handles
+            // (Steam64, steam:..., dayz:..., bare BE GUID, BE GUID with '=').
+            array<string> vparts = new array<string>;
+            SplitTokens(rest, vparts);
+            if (vparts.Count() < 2) { rawResult = "Usage: visit <requesterId> <targetId>"; success = false; }
+            else
+            {
+                PlayerBase reqp = FindPlayerByGameId(vparts[0]);
+                PlayerBase tgtp = FindPlayerByGameId(vparts[1]);
+                if (!reqp) { rawResult = "Requester not online: " + vparts[0]; success = false; }
+                else if (!tgtp) { rawResult = "Target not online: " + vparts[1]; success = false; }
+                else
+                {
+                    vector vpos = tgtp.GetPosition();
+                    reqp.SetPosition(vpos);
+                    rawResult = "Teleported " + vparts[0] + " to " + vparts[1] + " at " + vpos[0].ToString() + "," + vpos[1].ToString() + "," + vpos[2].ToString();
+                }
+            }
+        }
         else if (verb == "give" || verb == "giveitem")
         {
             // give <gameId> <classname> [amount]
@@ -640,6 +665,7 @@ class TakaroCommandDispatcher
         h += "  ban <gameId> [reason]               - write to ban.txt + battleye/bans.txt and kick" + nl;
         h += "  unban <gameId>                      - remove the gameId from both ban files" + nl;
         h += "  tp <gameId> <x> <y> <z>             - teleport a player to world coordinates" + nl;
+        h += "  visit <requesterId> <targetId>      - teleport requester to target's current position" + nl;
         h += "  give <gameId> <classname> [amount]  - spawn item(s) into the player's inventory" + nl;
         h += "  players                             - list every online player (name + gameId)" + nl;
         h += "  announce <message>                  - center-screen banner to all players (Expansion BAGUETTE)" + nl;
@@ -968,6 +994,18 @@ class TakaroCommandDispatcher
                 return id;
         }
         return null;
+    }
+
+    // Compose Takaro's required platformId field. DayZ's GetId() returns a
+    // base64-ish BIS hash with possible '=' padding; Takaro's regex
+    // ^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$ rejects '=', so strip it.
+    string BuildPlatformId(PlayerIdentity id)
+    {
+        if (!id) return "";
+        string bisid = id.GetId();
+        int eqIdx = bisid.IndexOf("=");
+        if (eqIdx >= 0) bisid = bisid.Substring(0, eqIdx);
+        return "dayz:" + bisid;
     }
 
     PlayerBase FindPlayerByGameId(string gameId)

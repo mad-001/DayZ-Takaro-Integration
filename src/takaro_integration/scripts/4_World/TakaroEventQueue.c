@@ -110,7 +110,7 @@ class TakaroEventFactory
         s += q + "gameId" + q + ":" + q + sid + q + ",";
         s += q + "name" + q + ":" + q + name + q + ",";
         s += q + "steamId" + q + ":" + q + sid + q + ",";
-        s += q + "platformId" + q + ":" + q + bisid + q + ",";
+        s += q + "platformId" + q + ":" + q + "dayz:" + bisid + q + ",";
         s += q + "ping" + q + ":" + ping.ToString();
         s += "}";
         return s;
@@ -127,13 +127,31 @@ class TakaroEventFactory
         return s;
     }
 
-    static string Disconnected(PlayerIdentity id, PlayerBase pb)
+    // For disconnect, identity/player may be null by the time we're called
+    // (vanilla MissionServer cleans them up before our hook in some paths).
+    // Fall back to building a minimal player JSON from the BIS uid alone so
+    // Takaro's DTO validation still passes.
+    static string Disconnected(PlayerIdentity id, PlayerBase pb, string uid)
     {
         string q = "\"";
         string s = "{";
         s += q + "type" + q + ":" + q + "player-disconnected" + q + ",";
         s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "player" + q + ":" + PlayerJson(id, pb);
+        if (id || pb)
+        {
+            s += q + "player" + q + ":" + PlayerJson(id, pb);
+        }
+        else
+        {
+            string bis = uid;
+            int eqIdx = bis.IndexOf("=");
+            if (eqIdx >= 0) bis = bis.Substring(0, eqIdx);
+            s += q + "player" + q + ":{";
+            s += q + "gameId" + q + ":" + q + bis + q + ",";
+            s += q + "name" + q + ":" + q + q + ",";
+            s += q + "platformId" + q + ":" + q + "dayz:" + bis + q;
+            s += "}";
+        }
         s += "}";
         return s;
     }
