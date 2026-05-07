@@ -263,7 +263,8 @@ class TakaroCommandDispatcher
         pb.GetInventory().EnumerateInventory(InventoryTraversalType.PREORDER, items);
         string json = "[";
         bool first = true;
-        for (int i = 0; i < items.Count(); i++)
+        int n = items.Count();
+        for (int i = 0; i < n; i++)
         {
             EntityAI it = items[i];
             if (!it) continue;
@@ -276,14 +277,8 @@ class TakaroCommandDispatcher
             if (amount <= 0) amount = 1;
             if (!first) json += ",";
             first = false;
-            string q = "\"";
-            string entry = "{";
-            entry += q + "name" + q + ":" + q + code + q + ",";
-            entry += q + "code" + q + ":" + q + code + q + ",";
-            entry += q + "amount" + q + ":" + amount.ToString() + ",";
-            entry += q + "quality" + q + ":" + q + q;
-            entry += "}";
-            json += entry;
+            json += string.Format("{\"name\":\"%1\",\"code\":\"%1\",\"amount\":%2,\"quality\":\"\"}",
+                code, amount.ToString());
         }
         json += "]";
         ReplyOk(op, json);
@@ -881,13 +876,9 @@ class TakaroCommandDispatcher
 
     string BuildCommandOutput(string rawResult, bool success)
     {
-        string q = "\"";
-        string s = "{";
-        s += q + "rawResult" + q + ":" + q + JsonSafeString(rawResult) + q + ",";
-        s += q + "success" + q + ":";
-        if (success) s += "true"; else s += "false";
-        s += "}";
-        return s;
+        string ok;
+        if (success) ok = "true"; else ok = "false";
+        return "{\"rawResult\":\"" + JsonSafeString(rawResult) + "\",\"success\":" + ok + "}";
     }
 
     // JSON-escape rawResult content so it survives Takaro's JSON parser
@@ -958,7 +949,6 @@ class TakaroCommandDispatcher
         const int MAX_LIST_ITEMS = 5000;
         const string ROOT = "CfgVehicles";
         int count = GetGame().ConfigGetChildrenCount(ROOT);
-        string q = "\"";
         string json = "[";
         bool first = true;
         int emitted = 0;
@@ -974,15 +964,10 @@ class TakaroCommandDispatcher
             GetGame().ConfigGetText(base + "displayName", display);
             if (display == "") display = cls;
             display = JsonSafeString(display);
-            string entry = "{";
-            entry += q + "name" + q + ":" + q + display + q + ",";
-            entry += q + "code" + q + ":" + q + cls + q + ",";
-            entry += q + "amount" + q + ":1,";
-            entry += q + "quality" + q + ":" + q + q;
-            entry += "}";
             if (!first) json += ",";
             first = false;
-            json += entry;
+            json += string.Format("{\"name\":\"%1\",\"code\":\"%2\",\"amount\":1,\"quality\":\"\"}",
+                display, cls);
             emitted++;
         }
         json += "]";
@@ -997,7 +982,6 @@ class TakaroCommandDispatcher
         const int MAX = 2000;
         const string ROOT = "CfgVehicles";
         int count = GetGame().ConfigGetChildrenCount(ROOT);
-        string q = "\"";
         string json = "[";
         bool first = true;
         int emitted = 0;
@@ -1007,20 +991,16 @@ class TakaroCommandDispatcher
             GetGame().ConfigGetChildName(ROOT, i, cls);
             if (cls == "") continue;
             // Filter to entity types: animals, infected (zombies), AI.
-            bool isEntity = false;
-            if (GetGame().IsKindOf(cls, "DayZAnimal")) isEntity = true;
-            else if (GetGame().IsKindOf(cls, "DayZInfected")) isEntity = true;
-            else if (GetGame().IsKindOf(cls, "DayZCreature")) isEntity = true;
-            if (!isEntity) continue;
+            if (!GetGame().IsKindOf(cls, "DayZAnimal")
+             && !GetGame().IsKindOf(cls, "DayZInfected")
+             && !GetGame().IsKindOf(cls, "DayZCreature"))
+                continue;
             string display = "";
             GetGame().ConfigGetText(ROOT + " " + cls + " displayName", display);
             if (display == "") display = cls;
             display = JsonSafeString(display);
-            string entry = "{";
-            entry += q + "name" + q + ":" + q + display + q + ",";
-            entry += q + "code" + q + ":" + q + cls + q + ",";
-            entry += q + "type" + q + ":" + q + "entity" + q;
-            entry += "}";
+            string entry = string.Format("{\"name\":\"%1\",\"code\":\"%2\",\"type\":\"entity\"}",
+                display, cls);
             if (!first) json += ",";
             first = false;
             json += entry;
@@ -1045,25 +1025,19 @@ class TakaroCommandDispatcher
 
     // Single ban entry builder — extracted from HandleListBans because Enforce
     // Script's parser flags single-line concatenations of more than ~10
-    // segments as "Formula too complex".
+    // segments as "Formula too complex". string.Format keeps it under that
+    // limit and produces the wire format in one allocation.
     string BuildBanEntry(string gameId, string reason)
     {
-        string q = "\"";
-        string s = "{";
-        s += q + "player" + q + ":{";
-        s += q + "gameId" + q + ":" + q + gameId + q;
-        s += "},";
-        s += q + "reason" + q + ":" + q + reason + q + ",";
-        s += q + "expiresAt" + q + ":null";
-        s += "}";
-        return s;
+        return string.Format(
+            "{\"player\":{\"gameId\":\"%1\"},\"reason\":\"%2\",\"expiresAt\":null}",
+            gameId, reason);
     }
 
     // Reads vanilla DayZ ban.txt (Steam64-per-line) AND BattlEye bans.txt
     // (GUID DURATION REASON). Merges, dedups, returns IBanDTO[].
     void HandleListBans(TakaroOperation op)
     {
-        string q = "\"";
         string json = "[";
         bool first = true;
         int emitted = 0;
@@ -1343,21 +1317,17 @@ class TakaroCommandDispatcher
     {
         string okLit;
         if (ok) okLit = "true"; else okLit = "false";
-        string body = "{" + Quote("operationId") + ":" + Quote(operationId) + "," + Quote("ok") + ":" + okLit;
+        // Static keys inlined — Quote() helper used to build a fresh string
+        // for each of `"operationId"` / `"ok"` / `"result"` / `"error"` on
+        // every result. operationId/errorMessage are expected to be simple
+        // (no quotes/control chars in the inputs we generate).
+        string body = "{\"operationId\":\"" + operationId + "\",\"ok\":" + okLit;
         if (resultJson != "")
-            body += "," + Quote("result") + ":" + resultJson;
+            body += ",\"result\":" + resultJson;
         if (errorMessage != "")
-            body += "," + Quote("error") + ":" + Quote(errorMessage);
+            body += ",\"error\":\"" + errorMessage + "\"";
         body += "}";
         return body;
-    }
-
-    // Wrap a string in JSON-style double quotes. Inputs are expected to be
-    // simple identifiers / IDs / human-readable error messages without quotes
-    // or control characters; we don't try to do full JSON escaping here.
-    string Quote(string s)
-    {
-        return "\"" + s + "\"";
     }
 
     void ReplyOk(TakaroOperation op, string resultJson)

@@ -1498,14 +1498,20 @@ void TakaroDayZ::RptTailLoop() {
         }
     }
 
+    // RPT rotation only happens on server boot, so doing the FindFirstFile
+    // directory scan every tick was wasted IO. Probe rotation every 30s and
+    // tail every 1s in between.
+    int rotateCheckCounter = 0;
     while (running) {
-        // Re-discover RPT periodically — DayZ rotates per boot.
-        std::string latest = FindLatestRpt();
-        if (!latest.empty() && latest != currentPath) {
-            currentPath = latest;
-            pos = 0;
-            Log("[Takaro] RPT rotated to " + latest);
+        if (rotateCheckCounter == 0) {
+            std::string latest = FindLatestRpt();
+            if (!latest.empty() && latest != currentPath) {
+                currentPath = latest;
+                pos = 0;
+                Log("[Takaro] RPT rotated to " + latest);
+            }
         }
+        if (++rotateCheckCounter >= 30) rotateCheckCounter = 0;
 
         if (!currentPath.empty()) {
             std::ifstream f(currentPath, std::ios::binary);
