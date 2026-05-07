@@ -297,8 +297,14 @@ class TakaroCommandDispatcher
         PlayerBase pb = FindPlayerByGameId(args.gameId);
         if (!pb)
         {
-            // Per Takaro contract, returning null is valid for "player not online".
-            ReplyOk(op, "null");
+            // Player is offline. We can't return null here — Takaro's generic
+            // emitter does `if (!res) return null` after the connector strips
+            // the response wrapper, but in practice the connector returns the
+            // wrapper itself, and `new IPosition(wrapper)` fails isNumber on x.
+            // Returning a zeroed IPosition keeps validation happy and matches
+            // the "no known location" semantic well enough for downstream
+            // consumers (eventWorker only uses it to record last-seen pos).
+            ReplyOk(op, "{\"x\":0,\"y\":0,\"z\":0}");
             return;
         }
         vector pos = pb.GetPosition();
@@ -762,9 +768,18 @@ class TakaroCommandDispatcher
     {
         array<Man> ppl = new array<Man>;
         GetGame().GetPlayers(ppl);
+        // Hoist the Expansion module lookup out of the per-player loop —
+        // CF_Modules<>.Get walks a registered-module list, no point doing
+        // it once per row.
+        bool haveParty = false;
+#ifdef EXPANSIONMOD
+        ExpansionPartyModule pmod;
+        haveParty = CF_Modules<ExpansionPartyModule>.Get(pmod);
+#endif
         string nl = "\n";
-        string out_s = "Online (" + ppl.Count().ToString() + "):" + nl;
-        for (int pi = 0; pi < ppl.Count(); pi++)
+        int pCount = ppl.Count();
+        string out_s = "Online (" + pCount.ToString() + "):" + nl;
+        for (int pi = 0; pi < pCount; pi++)
         {
             PlayerBase ppb = PlayerBase.Cast(ppl[pi]);
             if (!ppb) continue;
@@ -774,7 +789,14 @@ class TakaroCommandDispatcher
             int health = (int)ppb.GetHealth("", "Health");
             int blood = (int)ppb.GetHealth("", "Blood");
             int ping = pid2.GetPingAct();
-            string partyTag = BuildPartyTag(ppb);
+            string partyTag = "";
+#ifdef EXPANSIONMOD
+            if (haveParty)
+            {
+                int rowPid = pmod.GetPartyID(ppb);
+                if (rowPid != -1) partyTag = " party=" + rowPid.ToString();
+            }
+#endif
             out_s += "  " + pid2.GetName() + " (" + pid2.GetPlainId() + ")";
             out_s += " ping=" + ping.ToString() + "ms";
             out_s += " hp=" + health.ToString() + " blood=" + blood.ToString();
@@ -785,27 +807,15 @@ class TakaroCommandDispatcher
         return out_s;
     }
 
-    // Returns " party=<id>" if Expansion party module is loaded and the
-    // player is in a party. Empty string otherwise. Centralised so the
-    // #ifdef gate doesn't have to live inside the listing loop.
-    string BuildPartyTag(PlayerBase pb)
-    {
-#ifdef EXPANSIONMOD
-        ExpansionPartyModule pmod;
-        if (CF_Modules<ExpansionPartyModule>.Get(pmod))
-        {
-            int pid = pmod.GetPartyID(pb);
-            if (pid != -1) return " party=" + pid.ToString();
-        }
-#endif
-        return "";
-    }
-
     // Build the help string. One command per line with description. Kept as
     // many += statements rather than one big concat to dodge Enforce's
-    // "Formula too complex" parser limit.
+    // "Formula too complex" parser limit. Cached after first build — content
+    // is static, so re-concatenating the ~14 segments per `help` invocation
+    // is wasted work.
+    static string s_HelpCache = "";
     string BuildHelpString()
     {
+        if (s_HelpCache != "") return s_HelpCache;
         string nl = "\n";
         string h = "Available commands:" + nl;
         h += "  say <text>                          - broadcast a system message to all players" + nl;
@@ -825,7 +835,8 @@ class TakaroCommandDispatcher
         h += nl;
         h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers/listParties/banner." + nl;
         h += "Other RCON commands route through BattlEye when the BE RCON connection is up.";
-        return h;
+        s_HelpCache = h;
+        return s_HelpCache;
     }
 
     // Split 'rest' into [first-token, remainder-after-first-space].
@@ -841,27 +852,31 @@ class TakaroCommandDispatcher
         remainder.TrimInPlace();
     }
 
-    // Whitespace-split into an array.
+    // Whitespace-split into an array. Walks via IndexOf instead of a
+    // per-character Substring scan — for typical inputs (2–5 tokens) this is
+    // O(tokens) substring allocations instead of O(string.Length).
     void SplitTokens(string s, out array<string> parts)
     {
         if (!parts) return;
         parts.Clear();
         if (s == "") return;
-        string cur = "";
-        int n = s.Length();
-        for (int i = 0; i < n; i++)
+        string cur = s;
+        cur.TrimInPlace();
+        while (cur != "")
         {
-            string ch = s.Substring(i, 1);
-            if (ch == " " || ch == "\t")
-            {
-                if (cur != "") { parts.Insert(cur); cur = ""; }
-            }
-            else
-            {
-                cur += ch;
-            }
+            int sp = cur.IndexOf(" ");
+            int tab = cur.IndexOf("\t");
+            int end;
+            if (sp < 0 && tab < 0) { parts.Insert(cur); return; }
+            if (sp < 0) end = tab;
+            else if (tab < 0) end = sp;
+            else if (sp < tab) end = sp;
+            else end = tab;
+            string tok = cur.Substring(0, end);
+            if (tok != "") parts.Insert(tok);
+            cur = cur.Substring(end + 1, cur.Length() - end - 1);
+            cur.TrimInPlace();
         }
-        if (cur != "") parts.Insert(cur);
     }
 
     string BuildCommandOutput(string rawResult, bool success)

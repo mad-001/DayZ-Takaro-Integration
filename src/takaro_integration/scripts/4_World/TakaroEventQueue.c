@@ -35,25 +35,42 @@ class TakaroEventQueue
         return m_Pending.Count();
     }
 
+    // Take the first up-to-`max` entries off the queue. The previous
+    // implementation called Remove(0) per drained entry, which is O(n) per
+    // call and O(n*queueLength) overall. We split in one pass: copy head to a
+    // new array, rebuild m_Pending from the tail.
     array<string> Drain(int max)
     {
         array<string> drained = new array<string>;
-        int n = Math.Min(max, m_Pending.Count());
+        int total = m_Pending.Count();
+        int n = max;
+        if (n > total) n = total;
+        if (n <= 0) return drained;
+
         for (int i = 0; i < n; i++)
             drained.Insert(m_Pending[i]);
-        if (n > 0)
-        {
-            for (int j = 0; j < n; j++)
-                m_Pending.Remove(0);
-        }
+
+        array<string> remaining = new array<string>;
+        for (int j = n; j < total; j++)
+            remaining.Insert(m_Pending[j]);
+        m_Pending = remaining;
         return drained;
     }
 
+    // Push a previously-drained batch back to the front. Rebuilt in one pass
+    // (events ++ m_Pending) instead of n InsertAt(0) calls (each O(n)).
     void Requeue(array<string> events)
     {
         if (!events) return;
-        for (int i = events.Count() - 1; i >= 0; i--)
-            m_Pending.InsertAt(events[i], 0);
+        int eCount = events.Count();
+        if (eCount == 0) return;
+        array<string> combined = new array<string>;
+        for (int i = 0; i < eCount; i++)
+            combined.Insert(events[i]);
+        int oldCount = m_Pending.Count();
+        for (int j = 0; j < oldCount; j++)
+            combined.Insert(m_Pending[j]);
+        m_Pending = combined;
     }
 }
 
@@ -63,14 +80,13 @@ class TakaroEventFactory
     {
         int y, mo, d, h, mi;
         GetGame().GetWorld().GetDate(y, mo, d, h, mi);
-        int s = 0;
-        return string.Format("%1-%2-%3T%4:%5:%6Z",
-            y.ToString(),
-            PadInt(mo), PadInt(d),
-            PadInt(h), PadInt(mi), PadInt(s));
+        // Seconds always 00 — DayZ's GetDate has minute-resolution. Format
+        // each int with width-2 padding via a single string.Format.
+        return string.Format("%1-%2-%3T%4:%5:00Z",
+            y.ToString(), Pad2(mo), Pad2(d), Pad2(h), Pad2(mi));
     }
 
-    static string PadInt(int v)
+    static string Pad2(int v)
     {
         if (v < 10) return "0" + v.ToString();
         return v.ToString();
@@ -99,32 +115,21 @@ class TakaroEventFactory
     {
         if (!id && pb) id = pb.GetIdentity();
         if (!id) return "null";
-        string q = "\"";
         string sid = id.GetPlainId();
         string bisid = id.GetId();
         int eqIdx = bisid.IndexOf("=");
         if (eqIdx >= 0) bisid = bisid.Substring(0, eqIdx);
         string name = Safe(id.GetName());
-        int ping = id.GetPingAct();
-        string s = "{";
-        s += q + "gameId" + q + ":" + q + sid + q + ",";
-        s += q + "name" + q + ":" + q + name + q + ",";
-        s += q + "steamId" + q + ":" + q + sid + q + ",";
-        s += q + "platformId" + q + ":" + q + "dayz:" + bisid + q + ",";
-        s += q + "ping" + q + ":" + ping.ToString();
-        s += "}";
-        return s;
+        return string.Format(
+            "{\"gameId\":\"%1\",\"name\":\"%2\",\"steamId\":\"%3\",\"platformId\":\"dayz:%4\",\"ping\":%5}",
+            sid, name, sid, bisid, id.GetPingAct().ToString());
     }
 
     static string Connected(PlayerIdentity id)
     {
-        string q = "\"";
-        string s = "{";
-        s += q + "type" + q + ":" + q + "player-connected" + q + ",";
-        s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "player" + q + ":" + PlayerJson(id, null);
-        s += "}";
-        return s;
+        return string.Format(
+            "{\"type\":\"player-connected\",\"timestamp\":\"%1\",\"player\":%2}",
+            NowIso(), PlayerJson(id, null));
     }
 
     // For disconnect, identity/player may exist but be in cleanup — accessors
@@ -148,7 +153,6 @@ class TakaroEventFactory
     // event silently drops.
     static string Disconnected(PlayerIdentity id, PlayerBase pb, string uid, string cachedSteam = "", string cachedName = "")
     {
-        string q = "\"";
         // Strip trailing '=' from BIS uid to satisfy Takaro's platformId regex.
         string bis = uid;
         int eqIdx = bis.IndexOf("=");
@@ -170,58 +174,38 @@ class TakaroEventFactory
         if (name == "") name = Safe(cachedName);
         if (sid == "") sid = bis;
 
-        string s = "{";
-        s += q + "type" + q + ":" + q + "player-disconnected" + q + ",";
-        s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "player" + q + ":{";
-        s += q + "gameId" + q + ":" + q + sid + q + ",";
-        s += q + "name" + q + ":" + q + name + q + ",";
-        s += q + "steamId" + q + ":" + q + sid + q + ",";
-        s += q + "platformId" + q + ":" + q + "dayz:" + bis + q + ",";
-        s += q + "ping" + q + ":" + ping.ToString();
-        s += "}";
-        s += "}";
-        return s;
+        return string.Format(
+            "{\"type\":\"player-disconnected\",\"timestamp\":\"%1\",\"player\":{\"gameId\":\"%2\",\"name\":\"%3\",\"steamId\":\"%4\",\"platformId\":\"dayz:%5\",\"ping\":%6}}",
+            NowIso(), sid, name, sid, bis, ping.ToString());
     }
 
     static string Chat(PlayerIdentity id, string channel, string msg)
     {
-        string q = "\"";
-        string s = "{";
-        s += q + "type" + q + ":" + q + "chat-message" + q + ",";
-        s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "channel" + q + ":" + q + Safe(channel) + q + ",";
-        s += q + "msg" + q + ":" + q + Safe(msg) + q + ",";
-        s += q + "player" + q + ":" + PlayerJson(id, null);
-        s += "}";
-        return s;
+        return string.Format(
+            "{\"type\":\"chat-message\",\"timestamp\":\"%1\",\"channel\":\"%2\",\"msg\":\"%3\",\"player\":%4}",
+            NowIso(), Safe(channel), Safe(msg), PlayerJson(id, null));
     }
 
     static string Death(PlayerBase victim, EntityAI killer, string weapon)
     {
         // EventPlayerDeath has no `weapon` field (that's on EventEntityKilled).
         // Fold the weapon name into the optional `msg` so it isn't lost.
-        string q = "\"";
-        string s = "{";
-        s += q + "type" + q + ":" + q + "player-death" + q + ",";
-        s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "player" + q + ":" + PlayerJson(null, victim);
+        string s = string.Format(
+            "{\"type\":\"player-death\",\"timestamp\":\"%1\",\"player\":%2",
+            NowIso(), PlayerJson(null, victim));
         if (killer && killer.IsInherited(PlayerBase))
         {
             PlayerBase kp = PlayerBase.Cast(killer);
-            s += "," + q + "attacker" + q + ":" + PlayerJson(null, kp);
+            s += ",\"attacker\":" + PlayerJson(null, kp);
         }
         if (victim)
         {
             vector p = victim.GetPosition();
-            s += "," + q + "position" + q + ":{";
-            s += q + "x" + q + ":" + p[0].ToString() + ",";
-            s += q + "y" + q + ":" + p[1].ToString() + ",";
-            s += q + "z" + q + ":" + p[2].ToString();
-            s += "}";
+            s += string.Format(",\"position\":{\"x\":%1,\"y\":%2,\"z\":%3}",
+                p[0].ToString(), p[1].ToString(), p[2].ToString());
         }
         if (weapon != "")
-            s += "," + q + "msg" + q + ":" + q + "killed with " + Safe(weapon) + q;
+            s += ",\"msg\":\"killed with " + Safe(weapon) + "\"";
         s += "}";
         return s;
     }
@@ -229,12 +213,7 @@ class TakaroEventFactory
     static string LogLine(string raw)
     {
         // EventLogLine inherits BaseGameEvent.msg — there is no `raw` field.
-        string q = "\"";
-        string s = "{";
-        s += q + "type" + q + ":" + q + "log" + q + ",";
-        s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        s += q + "msg" + q + ":" + q + Safe(raw) + q;
-        s += "}";
-        return s;
+        return string.Format("{\"type\":\"log\",\"timestamp\":\"%1\",\"msg\":\"%2\"}",
+            NowIso(), Safe(raw));
     }
 }
