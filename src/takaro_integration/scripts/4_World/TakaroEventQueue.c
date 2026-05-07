@@ -127,31 +127,51 @@ class TakaroEventFactory
         return s;
     }
 
-    // For disconnect, identity/player may be null by the time we're called
-    // (vanilla MissionServer cleans them up before our hook in some paths).
-    // Fall back to building a minimal player JSON from the BIS uid alone so
-    // Takaro's DTO validation still passes.
+    // For disconnect, identity/player may exist but be in cleanup — accessors
+    // can return empty strings. Build the player JSON ourselves: derive the
+    // BIS hash from `uid` (which DayZ passes in reliably), and only use the
+    // identity for fields that don't break the DTO when missing.
+    //
+    // Why we don't reuse PlayerJson:
+    // - At disconnect, id.GetId() can return "" → platformId becomes "dayz:"
+    //   which fails Takaro's ^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$ regex.
+    // - id.GetPlainId() can return "" → empty gameId, breaks downstream
+    //   player matching.
+    // The `uid` parameter from MissionServer.PlayerDisconnected is the BIS
+    // hash (with '=' padding) — reliable even when identity is shedding
+    // state.
     static string Disconnected(PlayerIdentity id, PlayerBase pb, string uid)
     {
         string q = "\"";
+        // Strip trailing '=' from BIS uid to satisfy Takaro's platformId regex.
+        string bis = uid;
+        int eqIdx = bis.IndexOf("=");
+        if (eqIdx >= 0) bis = bis.Substring(0, eqIdx);
+
+        // Pull Steam64 + name + ping from identity if available; otherwise
+        // fall back to bis (so gameId stays non-empty) and "" / 0.
+        string sid = "";
+        string name = "";
+        int ping = 0;
+        if (!id && pb) id = pb.GetIdentity();
+        if (id)
+        {
+            sid = id.GetPlainId();
+            name = Safe(id.GetName());
+            ping = id.GetPingAct();
+        }
+        if (sid == "") sid = bis;
+
         string s = "{";
         s += q + "type" + q + ":" + q + "player-disconnected" + q + ",";
         s += q + "timestamp" + q + ":" + q + NowIso() + q + ",";
-        if (id || pb)
-        {
-            s += q + "player" + q + ":" + PlayerJson(id, pb);
-        }
-        else
-        {
-            string bis = uid;
-            int eqIdx = bis.IndexOf("=");
-            if (eqIdx >= 0) bis = bis.Substring(0, eqIdx);
-            s += q + "player" + q + ":{";
-            s += q + "gameId" + q + ":" + q + bis + q + ",";
-            s += q + "name" + q + ":" + q + q + ",";
-            s += q + "platformId" + q + ":" + q + "dayz:" + bis + q;
-            s += "}";
-        }
+        s += q + "player" + q + ":{";
+        s += q + "gameId" + q + ":" + q + sid + q + ",";
+        s += q + "name" + q + ":" + q + name + q + ",";
+        s += q + "steamId" + q + ":" + q + sid + q + ",";
+        s += q + "platformId" + q + ":" + q + "dayz:" + bis + q + ",";
+        s += q + "ping" + q + ":" + ping.ToString();
+        s += "}";
         s += "}";
         return s;
     }

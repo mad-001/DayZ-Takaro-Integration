@@ -563,12 +563,18 @@ class TakaroCommandDispatcher
         }
         else if (verb == "visit")
         {
-            // visit <requesterId> <targetId> — teleport requester to target's
-            // current world position. IDs accept any form IdMatches handles
-            // (Steam64, steam:..., dayz:..., bare BE GUID, BE GUID with '=').
+            // visit <requesterId> <targetId> [--force]
+            // Teleports requester to target's current world position.
+            // Requires both players to be in the same Expansion party
+            // unless --force is supplied.
             array<string> vparts = new array<string>;
             SplitTokens(rest, vparts);
-            if (vparts.Count() < 2) { rawResult = "Usage: visit <requesterId> <targetId>"; success = false; }
+            bool vforce = false;
+            for (int vi = 0; vi < vparts.Count(); vi++)
+            {
+                if (vparts[vi] == "--force") { vparts.Remove(vi); vforce = true; vi--; }
+            }
+            if (vparts.Count() < 2) { rawResult = "Usage: visit <requesterId> <targetId> [--force]"; success = false; }
             else
             {
                 PlayerBase reqp = FindPlayerByGameId(vparts[0]);
@@ -577,9 +583,28 @@ class TakaroCommandDispatcher
                 else if (!tgtp) { rawResult = "Target not online: " + vparts[1]; success = false; }
                 else
                 {
-                    vector vpos = tgtp.GetPosition();
-                    reqp.SetPosition(vpos);
-                    rawResult = "Teleported " + vparts[0] + " to " + vparts[1] + " at " + vpos[0].ToString() + "," + vpos[1].ToString() + "," + vpos[2].ToString();
+                    bool vsameParty = false;
+#ifdef EXPANSIONMOD
+                    ExpansionPartyModule pmod;
+                    if (CF_Modules<ExpansionPartyModule>.Get(pmod))
+                    {
+                        int reqPartyId = pmod.GetPartyID(reqp);
+                        int tgtPartyId = pmod.GetPartyID(tgtp);
+                        vsameParty = (reqPartyId != -1 && reqPartyId == tgtPartyId);
+                    }
+#endif
+                    if (!vsameParty && !vforce)
+                    {
+                        rawResult = "Players are not in the same party. Use --force to bypass.";
+                        success = false;
+                    }
+                    else
+                    {
+                        vector vpos = tgtp.GetPosition();
+                        reqp.SetPosition(vpos);
+                        rawResult = "Teleported " + vparts[0] + " to " + vparts[1] + " at " + vpos[0].ToString() + "," + vpos[1].ToString() + "," + vpos[2].ToString();
+                        if (vforce && !vsameParty) rawResult += " (forced, not in same party)";
+                    }
                 }
             }
         }
@@ -608,18 +633,95 @@ class TakaroCommandDispatcher
                 }
             }
         }
+        else if (verb == "parties" || verb == "listparties")
+        {
+            // List active Expansion parties and their online members.
+#ifdef EXPANSIONMOD
+            ExpansionPartyModule lpartyMod;
+            if (!CF_Modules<ExpansionPartyModule>.Get(lpartyMod))
+            {
+                rawResult = "Expansion party module not loaded.";
+                success = false;
+            }
+            else
+            {
+                array<Man> partyPpl = new array<Man>;
+                GetGame().GetPlayers(partyPpl);
+                map<int, ref array<string>> partyMap = new map<int, ref array<string>>;
+                for (int ppi = 0; ppi < partyPpl.Count(); ppi++)
+                {
+                    PlayerBase ppartyPb = PlayerBase.Cast(partyPpl[ppi]);
+                    if (!ppartyPb) continue;
+                    PlayerIdentity ppartyId = ppartyPb.GetIdentity();
+                    if (!ppartyId) continue;
+                    int ppartyPid = lpartyMod.GetPartyID(ppartyPb);
+                    if (ppartyPid == -1) continue;
+                    array<string> ppartyList;
+                    if (!partyMap.Find(ppartyPid, ppartyList))
+                    {
+                        ppartyList = new array<string>;
+                        partyMap.Insert(ppartyPid, ppartyList);
+                    }
+                    ppartyList.Insert(ppartyId.GetName() + " (" + ppartyId.GetPlainId() + ")");
+                }
+                string partyNl = "\n";
+                if (partyMap.Count() == 0) rawResult = "No active parties with online members.";
+                else
+                {
+                    rawResult = "Active parties (" + partyMap.Count().ToString() + "):" + partyNl;
+                    array<int> partyKeys = partyMap.GetKeyArray();
+                    for (int pki = 0; pki < partyKeys.Count(); pki++)
+                    {
+                        int pkey = partyKeys[pki];
+                        array<string> pmembers = partyMap.Get(pkey);
+                        rawResult += "  party=" + pkey.ToString() + " (" + pmembers.Count().ToString() + ")" + partyNl;
+                        for (int pmi = 0; pmi < pmembers.Count(); pmi++)
+                            rawResult += "    " + pmembers[pmi] + partyNl;
+                    }
+                }
+            }
+#else
+            rawResult = "Built without EXPANSIONMOD support.";
+            success = false;
+#endif
+        }
+        else if (verb == "party")
+        {
+            // party — list every online player with their party id (or "solo").
+#ifdef EXPANSIONMOD
+            ExpansionPartyModule sPartyMod;
+            if (!CF_Modules<ExpansionPartyModule>.Get(sPartyMod))
+            {
+                rawResult = "Expansion party module not loaded.";
+                success = false;
+            }
+            else
+            {
+                array<Man> spParty = new array<Man>;
+                GetGame().GetPlayers(spParty);
+                string spNl = "\n";
+                rawResult = "Players (" + spParty.Count().ToString() + "):" + spNl;
+                for (int spi = 0; spi < spParty.Count(); spi++)
+                {
+                    PlayerBase spPb = PlayerBase.Cast(spParty[spi]);
+                    if (!spPb) continue;
+                    PlayerIdentity spId = spPb.GetIdentity();
+                    if (!spId) continue;
+                    int spPid = sPartyMod.GetPartyID(spPb);
+                    string spTag;
+                    if (spPid == -1) spTag = "solo";
+                    else spTag = "party " + spPid.ToString();
+                    rawResult += "  " + spId.GetName() + " (" + spId.GetPlainId() + ") - " + spTag + spNl;
+                }
+            }
+#else
+            rawResult = "Built without EXPANSIONMOD support.";
+            success = false;
+#endif
+        }
         else if (verb == "players" || verb == "listplayers")
         {
-            array<Man> ppl = new array<Man>;
-            GetGame().GetPlayers(ppl);
-            rawResult = "Online (" + ppl.Count().ToString() + "):";
-            for (int pi = 0; pi < ppl.Count(); pi++)
-            {
-                PlayerBase ppb = PlayerBase.Cast(ppl[pi]);
-                if (!ppb) continue;
-                PlayerIdentity pid2 = ppb.GetIdentity();
-                if (pid2) rawResult += " " + pid2.GetName() + "(" + pid2.GetPlainId() + ")";
-            }
+            rawResult = BuildPlayerListing();
         }
         else if (verb == "announce" || verb == "banner")
         {
@@ -651,7 +753,55 @@ class TakaroCommandDispatcher
         ReplyOk(op, BuildCommandOutput(rawResult, success));
     }
 
-    // Build the help string. One verb per line with description. Kept as
+    // Build the rich `players` / `listplayers` console output. Multi-line,
+    // one player per row. Adds ping, hp, blood, position, and party tag
+    // (when Expansion is loaded). Kept in a helper to avoid #ifdef inside
+    // the dispatcher's switch-style chain (which Enforce's preprocessor
+    // handles inconsistently when the conditional branch declares vars).
+    string BuildPlayerListing()
+    {
+        array<Man> ppl = new array<Man>;
+        GetGame().GetPlayers(ppl);
+        string nl = "\n";
+        string out_s = "Online (" + ppl.Count().ToString() + "):" + nl;
+        for (int pi = 0; pi < ppl.Count(); pi++)
+        {
+            PlayerBase ppb = PlayerBase.Cast(ppl[pi]);
+            if (!ppb) continue;
+            PlayerIdentity pid2 = ppb.GetIdentity();
+            if (!pid2) continue;
+            vector pos = ppb.GetPosition();
+            int health = (int)ppb.GetHealth("", "Health");
+            int blood = (int)ppb.GetHealth("", "Blood");
+            int ping = pid2.GetPingAct();
+            string partyTag = BuildPartyTag(ppb);
+            out_s += "  " + pid2.GetName() + " (" + pid2.GetPlainId() + ")";
+            out_s += " ping=" + ping.ToString() + "ms";
+            out_s += " hp=" + health.ToString() + " blood=" + blood.ToString();
+            out_s += " pos=(" + pos[0].ToString() + "," + pos[1].ToString() + "," + pos[2].ToString() + ")";
+            out_s += partyTag;
+            out_s += nl;
+        }
+        return out_s;
+    }
+
+    // Returns " party=<id>" if Expansion party module is loaded and the
+    // player is in a party. Empty string otherwise. Centralised so the
+    // #ifdef gate doesn't have to live inside the listing loop.
+    string BuildPartyTag(PlayerBase pb)
+    {
+#ifdef EXPANSIONMOD
+        ExpansionPartyModule pmod;
+        if (CF_Modules<ExpansionPartyModule>.Get(pmod))
+        {
+            int pid = pmod.GetPartyID(pb);
+            if (pid != -1) return " party=" + pid.ToString();
+        }
+#endif
+        return "";
+    }
+
+    // Build the help string. One command per line with description. Kept as
     // many += statements rather than one big concat to dodge Enforce's
     // "Formula too complex" parser limit.
     string BuildHelpString()
@@ -665,14 +815,16 @@ class TakaroCommandDispatcher
         h += "  ban <gameId> [reason]               - write to ban.txt + battleye/bans.txt and kick" + nl;
         h += "  unban <gameId>                      - remove the gameId from both ban files" + nl;
         h += "  tp <gameId> <x> <y> <z>             - teleport a player to world coordinates" + nl;
-        h += "  visit <requesterId> <targetId>      - teleport requester to target's current position" + nl;
+        h += "  visit <requesterId> <targetId> [--force]  - teleport requester to target (must be partied unless --force)" + nl;
         h += "  give <gameId> <classname> [amount]  - spawn item(s) into the player's inventory" + nl;
-        h += "  players                             - list every online player (name + gameId)" + nl;
+        h += "  players                             - list online players (name, id, ping, hp, blood, pos, party)" + nl;
+        h += "  parties                             - list active Expansion parties and their online members" + nl;
+        h += "  party                               - list every online player with their party id (or 'solo')" + nl;
         h += "  announce <message>                  - center-screen banner to all players (Expansion BAGUETTE)" + nl;
         h += "  announce <title> | <message>       -   ...with a custom title (default 'Server')" + nl;
         h += nl;
-        h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers/banner." + nl;
-        h += "Other RCON verbs route through BattlEye when the BE RCON connection is up.";
+        h += "Aliases: addBan/removeBan/teleport/giveItem/listPlayers/listParties/banner." + nl;
+        h += "Other RCON commands route through BattlEye when the BE RCON connection is up.";
         return h;
     }
 

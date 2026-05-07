@@ -348,6 +348,7 @@ private:
     std::string beServerCfgPath = "battleye\\beserver_x64.cfg";
 
     std::thread rptTailThread;
+    std::thread heartbeatThread;
     std::string profilesDir = "profiles";
     bool forwardLogLines = true;
 
@@ -360,6 +361,7 @@ private:
     std::string ExtractField(const std::string& m, const std::string& field);
     void HandleMessage(const std::string& m);
     void WebSocketThread();
+    void HeartbeatLoop();
     void RptTailLoop();
     std::string FindLatestRpt();
     bool ShouldForwardLogLine(const std::string& line);
@@ -1233,8 +1235,10 @@ void TakaroDayZ::HandleMessage(const std::string& m) {
             bool scriptOnly =
                 verb == "help" ||
                 verb == "tp" || verb == "teleport" ||
+                verb == "visit" ||
                 verb == "give" || verb == "giveitem" ||
-                verb == "listplayers" ||
+                verb == "players" || verb == "listplayers" ||
+                verb == "parties" || verb == "listparties" || verb == "party" ||
                 verb == "shutdown" ||
                 verb == "announce" || verb == "banner";
             if (!scriptOnly) { HandleExecConsoleCommandRcon(requestId, argsJson); return; }
@@ -1306,6 +1310,24 @@ void TakaroDayZ::WebSocketThread() {
     }
 }
 
+// Sends `{"type":"ping"}` every 30s while running. Takaro's WebSocketServer
+// answers with `{"type":"pong","payload":null}` (we ignore the response —
+// HandleMessage just no-ops on it). Keeps `lastMessageMap[gameServer.id]`
+// current so the connector doesn't trip its 1-minute idle reconnect.
+void TakaroDayZ::HeartbeatLoop() {
+    const DWORD intervalMs = 30000;
+    DWORD slept = 0;
+    while (running) {
+        // Sleep in small slices so shutdown is responsive.
+        Sleep(500);
+        slept += 500;
+        if (slept < intervalMs) continue;
+        slept = 0;
+        if (!connected) continue;
+        SendRaw("{\"type\":\"ping\"}");
+    }
+}
+
 std::string TakaroDayZ::TimestampedLogPath() {
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
@@ -1348,6 +1370,14 @@ void TakaroDayZ::Start() {
         rptTailThread = std::thread(&TakaroDayZ::RptTailLoop, this);
     }
 
+    // App-level WS heartbeat — Takaro's GameServerManager will tear down the
+    // connection after `RECONNECT_AFTER_MS` (default 1m) of no inbound app
+    // messages from us, even if the WS PING/PONG keeps the socket alive.
+    // That tear-down made the dashboard flap online/offline whenever the
+    // server was idle. Send `{"type":"ping"}` every 30s to refresh
+    // `lastMessageMap` on the connector side.
+    heartbeatThread = std::thread(&TakaroDayZ::HeartbeatLoop, this);
+
     Log("[Takaro] threads started");
 }
 
@@ -1367,6 +1397,7 @@ void TakaroDayZ::Stop() {
     }
     if (wsThread.joinable()) wsThread.join();
     if (rptTailThread.joinable()) rptTailThread.join();
+    if (heartbeatThread.joinable()) heartbeatThread.join();
     Log("[Takaro] stopped");
     if (logFile.is_open()) logFile.close();
 }

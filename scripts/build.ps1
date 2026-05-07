@@ -10,7 +10,7 @@
 #
 # The build process:
 #   1. Copy src/takaro_integration/ to a temp staging dir (Maven-on-Windows
-#      pattern — DayZ Tools cannot read WSL UNC paths reliably).
+#      pattern - DayZ Tools cannot read WSL UNC paths reliably).
 #   2. Run AddonBuilder against the staging dir, output PBO to
 #      @TakaroIntegration/Addons/.
 #   3. Optionally sign the PBO with the provided private key.
@@ -83,6 +83,6 @@ if (Test-Path $pbo) {
     $size = (Get-Item $pbo).Length
     Write-Host "Built: $pbo ($size bytes)" -ForegroundColor Green
 } else {
-    Write-Host "PBO not produced — check AddonBuilder output above." -ForegroundColor Red
+    Write-Host "PBO not produced - check AddonBuilder output above." -ForegroundColor Red
     exit 2
 }
