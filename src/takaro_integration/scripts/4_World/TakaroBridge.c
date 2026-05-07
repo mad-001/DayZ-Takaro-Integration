@@ -9,7 +9,7 @@
 
 class TakaroBridge
 {
-    static const string VERSION = "0.1.1";
+    static const string VERSION = "0.1.2";
 
     ref TakaroHttpClient m_Http;
     ref TakaroEventQueue m_Queue;
@@ -22,12 +22,22 @@ class TakaroBridge
     int m_FlushIntervalSec;
     int m_PollIntervalSec;
 
+    // bisHash (no '=' padding) -> Steam64. Captured on connect so that at
+    // disconnect — when identity may be shedding state — we can still send
+    // the same gameId we sent on connect. Without this Takaro's resolveRef
+    // throws BadRequestError("Platform ID collision detected") and silently
+    // drops the disconnect event.
+    ref map<string, string> m_BisToSteam;
+    ref map<string, string> m_BisToName;
+
     void TakaroBridge()
     {
         m_Initialized = false;
         m_Registered = false;
         m_AccumFlush = 0;
         m_AccumPoll = 0;
+        m_BisToSteam = new map<string, string>();
+        m_BisToName = new map<string, string>();
     }
 
     void Initialize()
@@ -124,6 +134,14 @@ class TakaroBridge
         if (!identity) return;
         m_Queue.Enqueue(TakaroEventFactory.Connected(identity));
         TakaroLog.Debug("event: player-connected " + identity.GetName());
+
+        // Cache identity bits so disconnect can re-emit the same gameId/name
+        // even when PlayerIdentity is null at logout time.
+        string bisKey = identity.GetId();
+        int eqIdx = bisKey.IndexOf("=");
+        if (eqIdx >= 0) bisKey = bisKey.Substring(0, eqIdx);
+        m_BisToSteam.Set(bisKey, identity.GetPlainId());
+        m_BisToName.Set(bisKey, identity.GetName());
     }
 
     // identity + uid come straight from MissionServer.PlayerDisconnected;
@@ -131,11 +149,27 @@ class TakaroBridge
     void OnPlayerDisconnected(PlayerBase player, PlayerIdentity identity, string uid)
     {
         if (!m_Initialized) return;
-        m_Queue.Enqueue(TakaroEventFactory.Disconnected(identity, player, uid));
+
+        // Strip '=' padding from uid so it matches the cache key we wrote on
+        // connect.
+        string bisKey = uid;
+        int eqIdx = bisKey.IndexOf("=");
+        if (eqIdx >= 0) bisKey = bisKey.Substring(0, eqIdx);
+
+        string cachedSteam = "";
+        string cachedName = "";
+        if (m_BisToSteam.Contains(bisKey)) cachedSteam = m_BisToSteam.Get(bisKey);
+        if (m_BisToName.Contains(bisKey)) cachedName = m_BisToName.Get(bisKey);
+
+        m_Queue.Enqueue(TakaroEventFactory.Disconnected(identity, player, uid, cachedSteam, cachedName));
+
         if (identity)
-            TakaroLog.Debug("event: player-disconnected " + identity.GetName());
+            TakaroLog.Info("event: player-disconnected " + identity.GetName());
         else
-            TakaroLog.Debug("event: player-disconnected uid=" + uid);
+            TakaroLog.Info("event: player-disconnected uid=" + uid + " (cached steam=" + cachedSteam + ")");
+
+        m_BisToSteam.Remove(bisKey);
+        m_BisToName.Remove(bisKey);
     }
 
     void OnChatMessage(PlayerIdentity sender, string channel, string text)

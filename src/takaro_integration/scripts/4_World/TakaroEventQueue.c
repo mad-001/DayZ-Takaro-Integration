@@ -140,7 +140,13 @@ class TakaroEventFactory
     // The `uid` parameter from MissionServer.PlayerDisconnected is the BIS
     // hash (with '=' padding) — reliable even when identity is shedding
     // state.
-    static string Disconnected(PlayerIdentity id, PlayerBase pb, string uid)
+    // cachedSteam/cachedName come from TakaroBridge's bisHash->steam64 cache
+    // populated at connect time. They let us emit the same gameId/name we
+    // sent on connect even when PlayerIdentity is null at logout — without
+    // them Takaro's resolveRef throws "Platform ID collision detected"
+    // because gameId would mismatch the existing POG and the disconnect
+    // event silently drops.
+    static string Disconnected(PlayerIdentity id, PlayerBase pb, string uid, string cachedSteam = "", string cachedName = "")
     {
         string q = "\"";
         // Strip trailing '=' from BIS uid to satisfy Takaro's platformId regex.
@@ -148,8 +154,8 @@ class TakaroEventFactory
         int eqIdx = bis.IndexOf("=");
         if (eqIdx >= 0) bis = bis.Substring(0, eqIdx);
 
-        // Pull Steam64 + name + ping from identity if available; otherwise
-        // fall back to bis (so gameId stays non-empty) and "" / 0.
+        // Prefer live identity, then the connect-time cache, then bis as a
+        // last resort (for the gameId-non-empty constraint).
         string sid = "";
         string name = "";
         int ping = 0;
@@ -160,6 +166,8 @@ class TakaroEventFactory
             name = Safe(id.GetName());
             ping = id.GetPingAct();
         }
+        if (sid == "") sid = cachedSteam;
+        if (name == "") name = Safe(cachedName);
         if (sid == "") sid = bis;
 
         string s = "{";
