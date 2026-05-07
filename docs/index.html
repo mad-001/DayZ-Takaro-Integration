@@ -252,6 +252,9 @@ SCRIPT       : [Takaro] Bridge attached to MissionServer.OnInit</code></pre>
         <h3>8c. Takaro dashboard</h3>
         <p>Refresh your server's page in the Takaro dashboard. The <strong>Reachable</strong> indicator should turn green within a few seconds. Connect/disconnect a test player; the events should appear in Takaro's events stream within ~2 seconds.</p>
 
+        <h2>Player Chat Commands</h2>
+        <p>Anything a player types in chat starting with <code>/</code> (e.g. <code>/visit Mad</code>) is intercepted on the server and forwarded to Takaro as a <code>chat-message</code> event. The chat broadcast is suppressed: the player who typed it doesn't see it on their screen, and other players don't see it either — only Takaro receives it. Bind these to Takaro module commands in the dashboard.</p>
+
         <h2>Available Commands</h2>
         <p>These run via Takaro's execute-command action — either the dashboard's command box or any Takaro module that calls <code>gameServerControllerExecuteCommand</code>:</p>
         <pre><code>say &lt;text&gt;                          - broadcast to all players (yellow admin chat)

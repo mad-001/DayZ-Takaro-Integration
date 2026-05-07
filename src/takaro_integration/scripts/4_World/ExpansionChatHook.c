@@ -11,17 +11,22 @@ modded class ExpansionGlobalChatModule
         ParamsReadContext ctx, ExpansionChatMessageEventParams data)
     {
         // Intercept Takaro chat commands BEFORE super broadcasts the message.
-        // If the message starts with '/' we treat it as a command: forward it
-        // to Takaro for processing and skip super entirely so it never hits
-        // the chat RPC (other players don't see the command text) and never
-        // fires g_Game.GetMission().OnEvent (so the vanilla OnEvent hook in
-        // MissionServerTakaro doesn't double-forward to Takaro).
-        if (sender && data && data.param3 != "" && data.param3.IndexOf("/") == 0)
+        // If the trimmed message starts with '/' we treat it as a command:
+        // forward it to Takaro for processing and skip super entirely so it
+        // never hits the chat RPC (other players don't see the command text)
+        // and never fires g_Game.GetMission().OnEvent (so the vanilla OnEvent
+        // hook in MissionServerTakaro doesn't double-forward to Takaro).
+        if (sender && data && data.param3 != "")
         {
-            TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
-            if (bridge)
-                bridge.OnChatMessage(sender, "global", data.param3);
-            return;
+            string trimmed = data.param3;
+            trimmed.TrimInPlace();
+            if (trimmed != "" && trimmed.IndexOf("/") == 0)
+            {
+                TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
+                if (bridge)
+                    bridge.OnChatMessage(sender, "global", trimmed);
+                return;
+            }
         }
 
         super.AddChatMessage_Server(sender, target, ctx, data);
