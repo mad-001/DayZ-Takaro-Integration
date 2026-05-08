@@ -19,7 +19,7 @@ class CfgMods
         credits = "";
         author = "mad-001";
         authorID = "0";
-        version = "0.1.1";
+        version = "0.1.6";
         extra = 0;
         dependencies[] = {"Game", "World", "Mission"};
 

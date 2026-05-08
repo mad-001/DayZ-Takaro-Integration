@@ -28,7 +28,7 @@ function Show-TokenInstructions {
 Before continuing, you need a Takaro registration token.
 
 How to get one:
-  1. Sign up / log in at https://takaro.io
+  1. Sign up / log in at https://takaro.io/?via=zach550
   2. Open the "Game Servers" page in the dashboard
   3. Click the "Game server actions" button
   4. For "Server type", select GENERIC

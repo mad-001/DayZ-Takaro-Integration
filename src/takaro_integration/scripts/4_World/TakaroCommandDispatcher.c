@@ -31,11 +31,27 @@ class TakaroOperationResult
 
 // ---- Action arg shapes -------------------------------------------------
 
+// Takaro's wire shape for sendMessage args is `{message, opts:{recipient:{gameId},
+// senderNameOverride}}` (lib-gameserver IMessageOptsDTO + IPlayerReferenceDTO).
+// The DLL forwards this argsJson verbatim, so the DTOs here have to mirror the
+// nested shape — Enforce JsonSerializer.ReadFromString fails parsing when the
+// payload contains a nested object that doesn't map to a `ref ClassName` field
+// (which silently broke /link: PM was never delivered, op came back ok=false).
+class ArgsSendMessageRecipient
+{
+    string gameId;
+}
+
+class ArgsSendMessageOpts
+{
+    ref ArgsSendMessageRecipient recipient;
+    string senderNameOverride;
+}
+
 class ArgsSendMessage
 {
     string message;
-    string channel;          // "global" by default; future: "direct" -> recipientId
-    string recipientGameId;
+    ref ArgsSendMessageOpts opts;
 }
 
 class ArgsKickPlayer
@@ -277,8 +293,11 @@ class TakaroCommandDispatcher
             if (amount <= 0) amount = 1;
             if (!first) json += ",";
             first = false;
-            json += string.Format("{\"name\":\"%1\",\"code\":\"%1\",\"amount\":%2,\"quality\":\"\"}",
-                code, amount.ToString());
+            string itemEntry = "{" + Quote("name") + ":" + Quote(code);
+            itemEntry += "," + Quote("code") + ":" + Quote(code);
+            itemEntry += "," + Quote("amount") + ":" + amount.ToString();
+            itemEntry += "," + Quote("quality") + ":" + Quote("") + "}";
+            json += itemEntry;
         }
         json += "]";
         ReplyOk(op, json);
@@ -313,12 +332,16 @@ class TakaroCommandDispatcher
         ArgsSendMessage args = new ArgsSendMessage();
         if (!ParseSendMessage(op, args)) return;
 
-        if (args.recipientGameId != "")
+        string recipientGameId = "";
+        if (args.opts && args.opts.recipient)
+            recipientGameId = args.opts.recipient.gameId;
+
+        if (recipientGameId != "")
         {
-            PlayerBase pb = FindPlayerByGameId(args.recipientGameId);
+            PlayerBase pb = FindPlayerByGameId(recipientGameId);
             if (!pb)
             {
-                ReplyError(op, "Recipient not online: " + args.recipientGameId);
+                ReplyError(op, "Recipient not online: " + recipientGameId);
                 return;
             }
             BroadcastSystemMessage(args.message, pb);
@@ -966,8 +989,11 @@ class TakaroCommandDispatcher
             display = JsonSafeString(display);
             if (!first) json += ",";
             first = false;
-            json += string.Format("{\"name\":\"%1\",\"code\":\"%2\",\"amount\":1,\"quality\":\"\"}",
-                display, cls);
+            string listEntry = "{" + Quote("name") + ":" + Quote(display);
+            listEntry += "," + Quote("code") + ":" + Quote(cls);
+            listEntry += "," + Quote("amount") + ":1";
+            listEntry += "," + Quote("quality") + ":" + Quote("") + "}";
+            json += listEntry;
             emitted++;
         }
         json += "]";
@@ -991,16 +1017,12 @@ class TakaroCommandDispatcher
             GetGame().ConfigGetChildName(ROOT, i, cls);
             if (cls == "") continue;
             // Filter to entity types: animals, infected (zombies), AI.
-            if (!GetGame().IsKindOf(cls, "DayZAnimal")
-             && !GetGame().IsKindOf(cls, "DayZInfected")
-             && !GetGame().IsKindOf(cls, "DayZCreature"))
-                continue;
+            if (!GetGame().IsKindOf(cls, "DayZAnimal") && !GetGame().IsKindOf(cls, "DayZInfected") && !GetGame().IsKindOf(cls, "DayZCreature")) continue;
             string display = "";
             GetGame().ConfigGetText(ROOT + " " + cls + " displayName", display);
             if (display == "") display = cls;
             display = JsonSafeString(display);
-            string entry = string.Format("{\"name\":\"%1\",\"code\":\"%2\",\"type\":\"entity\"}",
-                display, cls);
+            string entry = "{" + Quote("name") + ":" + Quote(display) + "," + Quote("code") + ":" + Quote(cls) + "," + Quote("type") + ":" + Quote("entity") + "}";
             if (!first) json += ",";
             first = false;
             json += entry;
@@ -1023,15 +1045,17 @@ class TakaroCommandDispatcher
         TakaroLog.Info("listLocations: returned empty (no enumeration API in vanilla)");
     }
 
-    // Single ban entry builder — extracted from HandleListBans because Enforce
-    // Script's parser flags single-line concatenations of more than ~10
-    // segments as "Formula too complex". string.Format keeps it under that
-    // limit and produces the wire format in one allocation.
+    // Single ban entry builder. Built via accumulator to dodge two Enforce
+    // gotchas at once: (1) string.Format with many \" escapes is unreliable
+    // (silently mangles Takaro DTO fields, see TakaroEventQueue.Chat fix),
+    // and (2) a single concat chain past ~10 segments hits "Formula too
+    // complex". Splitting `+=` into stages stays under both limits.
     string BuildBanEntry(string gameId, string reason)
     {
-        return string.Format(
-            "{\"player\":{\"gameId\":\"%1\"},\"reason\":\"%2\",\"expiresAt\":null}",
-            gameId, reason);
+        string s = "{" + Quote("player") + ":{" + Quote("gameId") + ":" + Quote(gameId) + "}";
+        s += "," + Quote("reason") + ":" + Quote(reason);
+        s += "," + Quote("expiresAt") + ":null}";
+        return s;
     }
 
     // Reads vanilla DayZ ban.txt (Steam64-per-line) AND BattlEye bans.txt
@@ -1353,5 +1377,14 @@ class TakaroCommandDispatcher
         string path = "/gameserver/" + cfg.GameServerId + "/operation/" + operationId + "/result";
         TakaroHttpCallback cb = new TakaroHttpCallback("opResult");
         m_Http.Post(path, body, cb);
+    }
+
+    // Wrap a string in JSON-style double quotes. Used in places where a
+    // literal `\"` escape sequence in a string.Format pattern would confuse
+    // Enforce Script's CParser (it chokes on multiple `\"` escapes,
+    // especially the `\"\"` empty-string sequence).
+    string Quote(string s)
+    {
+        return "\"" + s + "\"";
     }
 }

@@ -120,16 +120,24 @@ class TakaroEventFactory
         int eqIdx = bisid.IndexOf("=");
         if (eqIdx >= 0) bisid = bisid.Substring(0, eqIdx);
         string name = Safe(id.GetName());
-        return string.Format(
-            "{\"gameId\":\"%1\",\"name\":\"%2\",\"steamId\":\"%3\",\"platformId\":\"dayz:%4\",\"ping\":%5}",
-            sid, name, sid, bisid, id.GetPingAct().ToString());
+        string q = "\"";
+        string s = "{" + q + "gameId" + q + ":" + q + sid + q;
+        s += "," + q + "name" + q + ":" + q + name + q;
+        s += "," + q + "steamId" + q + ":" + q + sid + q;
+        s += "," + q + "platformId" + q + ":" + q + "dayz:" + bisid + q;
+        s += "," + q + "ping" + q + ":" + id.GetPingAct().ToString();
+        s += "}";
+        return s;
     }
 
     static string Connected(PlayerIdentity id)
     {
-        return string.Format(
-            "{\"type\":\"player-connected\",\"timestamp\":\"%1\",\"player\":%2}",
-            NowIso(), PlayerJson(id, null));
+        string q = "\"";
+        string s = "{" + q + "type" + q + ":" + q + "player-connected" + q;
+        s += "," + q + "timestamp" + q + ":" + q + NowIso() + q;
+        s += "," + q + "player" + q + ":" + PlayerJson(id, null);
+        s += "}";
+        return s;
     }
 
     // For disconnect, identity/player may exist but be in cleanup — accessors
@@ -174,38 +182,59 @@ class TakaroEventFactory
         if (name == "") name = Safe(cachedName);
         if (sid == "") sid = bis;
 
-        return string.Format(
-            "{\"type\":\"player-disconnected\",\"timestamp\":\"%1\",\"player\":{\"gameId\":\"%2\",\"name\":\"%3\",\"steamId\":\"%4\",\"platformId\":\"dayz:%5\",\"ping\":%6}}",
-            NowIso(), sid, name, sid, bis, ping.ToString());
+        string q = "\"";
+        string s = "{" + q + "type" + q + ":" + q + "player-disconnected" + q;
+        s += "," + q + "timestamp" + q + ":" + q + NowIso() + q;
+        s += "," + q + "player" + q + ":{";
+        s += q + "gameId" + q + ":" + q + sid + q;
+        s += "," + q + "name" + q + ":" + q + name + q;
+        s += "," + q + "steamId" + q + ":" + q + sid + q;
+        s += "," + q + "platformId" + q + ":" + q + "dayz:" + bis + q;
+        s += "," + q + "ping" + q + ":" + ping.ToString();
+        s += "}}";
+        return s;
     }
 
     static string Chat(PlayerIdentity id, string channel, string msg)
     {
-        return string.Format(
-            "{\"type\":\"chat-message\",\"timestamp\":\"%1\",\"channel\":\"%2\",\"msg\":\"%3\",\"player\":%4}",
-            NowIso(), Safe(channel), Safe(msg), PlayerJson(id, null));
+        // Concat-built (not string.Format) because the optimizer's prior
+        // rewrite to string.Format produced output that Takaro rejected with
+        // "channel has failed isEnum" — likely Enforce string.Format losing
+        // a substitution when many \" escapes share the format string.
+        string q = "\"";
+        string s = "{" + q + "type" + q + ":" + q + "chat-message" + q;
+        s += "," + q + "timestamp" + q + ":" + q + NowIso() + q;
+        s += "," + q + "channel" + q + ":" + q + Safe(channel) + q;
+        s += "," + q + "msg" + q + ":" + q + Safe(msg) + q;
+        s += "," + q + "player" + q + ":" + PlayerJson(id, null);
+        s += "}";
+        return s;
     }
 
     static string Death(PlayerBase victim, EntityAI killer, string weapon)
     {
         // EventPlayerDeath has no `weapon` field (that's on EventEntityKilled).
         // Fold the weapon name into the optional `msg` so it isn't lost.
-        string s = string.Format(
-            "{\"type\":\"player-death\",\"timestamp\":\"%1\",\"player\":%2",
-            NowIso(), PlayerJson(null, victim));
+        string q = "\"";
+        string s = "{" + q + "type" + q + ":" + q + "player-death" + q;
+        s += "," + q + "timestamp" + q + ":" + q + NowIso() + q;
+        s += "," + q + "player" + q + ":" + PlayerJson(null, victim);
         if (killer && killer.IsInherited(PlayerBase))
         {
             PlayerBase kp = PlayerBase.Cast(killer);
-            s += ",\"attacker\":" + PlayerJson(null, kp);
+            s += "," + q + "attacker" + q + ":" + PlayerJson(null, kp);
         }
         if (victim)
         {
             vector p = victim.GetPosition();
-            s += string.Format(",\"position\":{\"x\":%1,\"y\":%2,\"z\":%3}",
-                p[0].ToString(), p[1].ToString(), p[2].ToString());
+            s += "," + q + "position" + q + ":{";
+            s += q + "x" + q + ":" + p[0].ToString();
+            s += "," + q + "y" + q + ":" + p[1].ToString();
+            s += "," + q + "z" + q + ":" + p[2].ToString();
+            s += "}";
         }
         if (weapon != "")
-            s += ",\"msg\":\"killed with " + Safe(weapon) + "\"";
+            s += "," + q + "msg" + q + ":" + q + "killed with " + Safe(weapon) + q;
         s += "}";
         return s;
     }
@@ -213,7 +242,11 @@ class TakaroEventFactory
     static string LogLine(string raw)
     {
         // EventLogLine inherits BaseGameEvent.msg — there is no `raw` field.
-        return string.Format("{\"type\":\"log\",\"timestamp\":\"%1\",\"msg\":\"%2\"}",
-            NowIso(), Safe(raw));
+        string q = "\"";
+        string s = "{" + q + "type" + q + ":" + q + "log" + q;
+        s += "," + q + "timestamp" + q + ":" + q + NowIso() + q;
+        s += "," + q + "msg" + q + ":" + q + Safe(raw) + q;
+        s += "}";
+        return s;
     }
 }
