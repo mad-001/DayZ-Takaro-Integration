@@ -22,6 +22,23 @@ modded class ExpansionGlobalChatModule
             trimmed.TrimInPlace();
             if (trimmed != "" && trimmed.IndexOf("/") == 0)
             {
+                // Whisper an immediate ack so the player sees their command
+                // was received even if Takaro's response is delayed or the
+                // command isn't registered. Routed via CCTransport because
+                // its TransportChatColor (#FFCE09) is the closest preset
+                // to "gold" in this server's ChatSettings — SystemChatColor
+                // (#EB45EB) renders bright magenta on this profile, so it's
+                // the wrong knob to turn for an ack.
+                int sp = trimmed.IndexOf(" ");
+                string verb = trimmed;
+                if (sp > 0) verb = trimmed.Substring(0, sp);
+                ExpansionChatMessageEventParams ackData =
+                    new ExpansionChatMessageEventParams(
+                        ExpansionChatChannels.CCTransport, "", "command received " + verb, "", "");
+                auto ackRpc = Expansion_CreateRPC("RPC_AddChatMessage");
+                ackRpc.Write(ackData);
+                ackRpc.Expansion_Send(true, sender);
+
                 TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
                 if (bridge)
                     bridge.OnChatMessage(sender, "global", trimmed);
