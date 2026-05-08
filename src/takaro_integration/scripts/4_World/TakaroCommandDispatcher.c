@@ -329,12 +329,18 @@ class TakaroCommandDispatcher
 
     void HandleSendMessage(TakaroOperation op)
     {
-        ArgsSendMessage args = new ArgsSendMessage();
-        if (!ParseSendMessage(op, args)) return;
-
-        string recipientGameId = "";
-        if (args.opts && args.opts.recipient)
-            recipientGameId = args.opts.recipient.gameId;
+        // Bypass JsonSerializer for this argsJson — Enforce's JSON parser
+        // doesn't recurse into nested `ref ClassName` fields reliably, so
+        // a flat-DTO read silently fails (returns false, prints
+        // `JSON ERROR …takarohttpclient.c:38`) on Takaro's actual shape
+        // `{message, opts:{recipient:{gameId},senderNameOverride}}`.
+        // Manual extraction is the safe path: there's only one `gameId`
+        // anywhere in this argsJson, so a top-level scan finds the
+        // recipient regardless of nesting depth.
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return; }
+        string message = ExtractJsonStringField(op.argsJson, "message");
+        if (message == "") { ReplyError(op, "sendMessage: empty message"); return; }
+        string recipientGameId = ExtractJsonStringField(op.argsJson, "gameId");
 
         if (recipientGameId != "")
         {
@@ -344,11 +350,11 @@ class TakaroCommandDispatcher
                 ReplyError(op, "Recipient not online: " + recipientGameId);
                 return;
             }
-            BroadcastSystemMessage(args.message, pb);
+            BroadcastSystemMessage(message, pb);
         }
         else
         {
-            BroadcastSystemMessage(args.message, null);
+            BroadcastSystemMessage(message, null);
         }
         ReplyOk(op, "{}");
     }
@@ -1386,5 +1392,27 @@ class TakaroCommandDispatcher
     string Quote(string s)
     {
         return "\"" + s + "\"";
+    }
+
+    // Find `"<field>":"<value>"` and return the value, or "" if absent.
+    // Used as a JsonSerializer escape hatch when Enforce's parser can't be
+    // trusted (nested-ref classes, mixed shapes from Takaro). Caveats:
+    //  - Stops at the first unescaped `"`. Messages containing escaped
+    //    quotes will be truncated — not a problem for the cases we use it
+    //    on (sendMessage's `message` is a 300-char ASCII line, gameId is a
+    //    Steam64 digit string).
+    //  - Searches the WHOLE buffer, so nesting depth is irrelevant. Only
+    //    safe when the field name is unique across the payload, which it
+    //    is for sendMessage's `gameId`/`message`.
+    string ExtractJsonStringField(string json, string field)
+    {
+        string needle = "\"" + field + "\":\"";
+        int p = json.IndexOf(needle);
+        if (p < 0) return "";
+        p += needle.Length();
+        string rest = json.Substring(p, json.Length() - p);
+        int e = rest.IndexOf("\"");
+        if (e < 0) return "";
+        return rest.Substring(0, e);
     }
 }
