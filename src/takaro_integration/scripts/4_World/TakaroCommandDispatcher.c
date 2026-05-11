@@ -230,7 +230,7 @@ class TakaroCommandDispatcher
 
             ResultPlayerInfo info = new ResultPlayerInfo();
             info.gameId = id.GetPlainId();
-            info.name = id.GetName();
+            info.name = TakaroNameCache.Resolve(id.GetPlainId(), id.GetName());
             info.steamId = id.GetPlainId();
             info.platformId = BuildPlatformId(id);
             info.ping = id.GetPingAct();
@@ -253,7 +253,7 @@ class TakaroCommandDispatcher
         }
         ResultPlayerInfo info = new ResultPlayerInfo();
         info.gameId = id.GetPlainId();
-        info.name = id.GetName();
+        info.name = TakaroNameCache.Resolve(id.GetPlainId(), id.GetName());
         info.steamId = id.GetPlainId();
         info.platformId = BuildPlatformId(id);
         info.ping = id.GetPingAct();
@@ -474,23 +474,33 @@ class TakaroCommandDispatcher
 
     void HandleGiveItem(TakaroOperation op)
     {
-        ArgsGiveItem args = new ArgsGiveItem();
-        if (!ParseGiveItem(op, args)) return;
-        if (args.amount <= 0) args.amount = 1;
+        // Bypass JsonSerializer — Takaro's wire shape for giveItem wraps the
+        // recipient in `player: {gameId}`, so a flat-DTO read leaves
+        // args.gameId empty and FindPlayerByGameId fails. Same pattern as
+        // sendMessage (v0.1.7). Manual extraction is the safe path.
+        if (!op || op.argsJson == "") { ReplyError(op, "Missing args"); return; }
+        string gameId = ExtractJsonStringField(op.argsJson, "gameId");
+        string itemClass = ExtractJsonStringField(op.argsJson, "item");
+        string quality = ExtractJsonStringField(op.argsJson, "quality");
+        int amount = ExtractJsonIntField(op.argsJson, "amount");
+        if (amount <= 0) amount = 1;
 
-        PlayerBase pb = FindPlayerByGameId(args.gameId);
+        if (gameId == "") { ReplyError(op, "giveItem: missing gameId"); return; }
+        if (itemClass == "") { ReplyError(op, "giveItem: missing item"); return; }
+
+        PlayerBase pb = FindPlayerByGameId(gameId);
         if (!pb)
         {
-            ReplyError(op, "Player not online: " + args.gameId);
+            ReplyError(op, "Player not online: " + gameId);
             return;
         }
-        for (int i = 0; i < args.amount; i++)
+        for (int i = 0; i < amount; i++)
         {
-            EntityAI item = pb.GetInventory().CreateInInventory(args.item);
+            EntityAI item = pb.GetInventory().CreateInInventory(itemClass);
             if (!item)
             {
                 // Drop on ground at player's feet as a fallback.
-                GetGame().CreateObject(args.item, pb.GetPosition());
+                GetGame().CreateObject(itemClass, pb.GetPosition());
             }
         }
         ReplyOk(op, "{}");
@@ -975,7 +985,12 @@ class TakaroCommandDispatcher
     // so we don't ship a 30k-entry payload over WS.
     void HandleListItems(TakaroOperation op)
     {
-        const int MAX_LIST_ITEMS = 5000;
+        // Modded DayZ servers (Expansion + BBP + DDA + PvZmoD + …) push
+        // CfgVehicles past 30k entries. The previous 5000 cap silently
+        // truncated the alphabet before reaching mid-letters like 'H' —
+        // that's why vanilla Hatchet never made it into Takaro's items
+        // list while early-letter mod props (`bldr_prop_*`) did.
+        const int MAX_LIST_ITEMS = 50000;
         const string ROOT = "CfgVehicles";
         int count = GetGame().ConfigGetChildrenCount(ROOT);
         string json = "[";
@@ -989,6 +1004,11 @@ class TakaroCommandDispatcher
             string base = ROOT + " " + cls + " ";
             int scope = GetGame().ConfigGetInt(base + "scope");
             if (scope < 1) continue;
+            // Player-pickupable items inherit from Inventory_Base. Skip
+            // everything else: vehicles (Car/Truck), buildings/houses, AI
+            // (ZombieBase/AnimalBase), and mod props like `bldr_prop_*`
+            // that spawn as un-interactable world entities.
+            if (!GetGame().IsKindOf(cls, "Inventory_Base")) continue;
             string display = "";
             GetGame().ConfigGetText(base + "displayName", display);
             if (display == "") display = cls;
@@ -1414,5 +1434,29 @@ class TakaroCommandDispatcher
         int e = rest.IndexOf("\"");
         if (e < 0) return "";
         return rest.Substring(0, e);
+    }
+
+    // Same flat-text approach for unquoted numeric fields like
+    // giveItem's `amount`. Walks digits after `"field":` and converts.
+    // Returns 0 if not found or not a parseable integer.
+    int ExtractJsonIntField(string json, string field)
+    {
+        string needle = "\"" + field + "\":";
+        int p = json.IndexOf(needle);
+        if (p < 0) return 0;
+        p += needle.Length();
+        // Skip whitespace.
+        while (p < json.Length() && json.Get(p) == " ") p++;
+        int start = p;
+        if (p < json.Length() && (json.Get(p) == "-" || json.Get(p) == "+")) p++;
+        while (p < json.Length())
+        {
+            string ch = json.Get(p);
+            if (ch < "0" || ch > "9") break;
+            p++;
+        }
+        if (p == start) return 0;
+        string num = json.Substring(start, p - start);
+        return num.ToInt();
     }
 }

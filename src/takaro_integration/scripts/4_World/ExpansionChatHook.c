@@ -24,20 +24,43 @@ modded class ExpansionGlobalChatModule
             {
                 // Whisper an immediate ack so the player sees their command
                 // was received even if Takaro's response is delayed or the
-                // command isn't registered. Routed via CCTransport because
-                // its TransportChatColor (#FFCE09) is the closest preset
-                // to "gold" in this server's ChatSettings — SystemChatColor
-                // (#EB45EB) renders bright magenta on this profile, so it's
-                // the wrong knob to turn for an ack.
+                // command isn't registered.
+                //
+                // Delivery is server→client-only via Expansion_Send(true,
+                // sender) — no other player ever receives this RPC. Channel
+                // is CCDirect so the recipient's chat UI renders it without
+                // a "Global:" decoration (PM feel). CCDirect's only
+                // client-side gate is GetProfileOption(PLAYER_MESSAGES)
+                // in ExpansionChatUIWindow.Add, the same gate that already
+                // lets /link PMs through, so we know it passes for our
+                // players.
+                //
+                // Avoid CCTransport: Expansion's client-side
+                // AddChatMessage_Client (ExpansionGlobalChatModule.c
+                // l.189-196) silently drops CCTransport unless the
+                // recipient is in a vehicle whose entity matches the RPC
+                // target. CCTeam is similarly party-gated.
+                //
+                // Color is overridden via param4 ("colorAction" →
+                // ActionMessageColor → COLOR_YELLOW). The channel would
+                // otherwise dictate color (CCDirect → DirectChatColor =
+                // white); there's no "gold" preset reachable outside
+                // CCTransport without editing ChatSettings.json. param4
+                // is read on the client at
+                // ExpansionChatUIWindow.AddInternal → message.SetColorByName.
                 int sp = trimmed.IndexOf(" ");
                 string verb = trimmed;
                 if (sp > 0) verb = trimmed.Substring(0, sp);
-                ExpansionChatMessageEventParams ackData =
-                    new ExpansionChatMessageEventParams(
-                        ExpansionChatChannels.CCTransport, "", "command received " + verb, "", "");
-                auto ackRpc = Expansion_CreateRPC("RPC_AddChatMessage");
-                ackRpc.Write(ackData);
-                ackRpc.Expansion_Send(true, sender);
+                ExpansionGlobalChatModule ackMod;
+                if (CF_Modules<ExpansionGlobalChatModule>.Get(ackMod))
+                {
+                    ExpansionChatMessageEventParams ackData =
+                        new ExpansionChatMessageEventParams(
+                            ExpansionChatChannels.CCDirect, "", "command received " + verb, "colorAction", "");
+                    auto ackRpc = ackMod.Expansion_CreateRPC("RPC_AddChatMessage");
+                    ackRpc.Write(ackData);
+                    ackRpc.Expansion_Send(true, sender);
+                }
 
                 TakaroBridge bridge = TakaroBridge.Cast(TakaroBridgeAccessor.Get());
                 if (bridge)

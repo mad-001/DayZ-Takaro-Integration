@@ -122,3 +122,102 @@ class TakaroBridgeAccessor
         return s_BridgeRef;
     }
 }
+
+// Persistent steam64 -> real-name cache. DayZ's identity.GetName() returns
+// "Survivor" (or "Survivor (N)" when several collide) whenever the Steam/BE
+// handshake fails to resolve the player's display name at connect — happens
+// intermittently across sessions of the same player. Without this cache,
+// "Survivor" leaks into Takaro events and overwrites the player record;
+// modules then see data.player.name === "Survivor".
+class TakaroNameEntry
+{
+    string steamId;
+    string name;
+}
+
+class TakaroNameCacheData
+{
+    ref array<ref TakaroNameEntry> entries;
+
+    void TakaroNameCacheData()
+    {
+        entries = new array<ref TakaroNameEntry>;
+    }
+}
+
+class TakaroNameCache
+{
+    static const string CACHE_FILE = "$profile:TakaroIntegration/names.json";
+
+    static ref map<string, string> s_Names;
+    static bool s_Loaded;
+
+    static void EnsureLoaded()
+    {
+        if (s_Loaded) return;
+        s_Names = new map<string, string>;
+        if (FileExist(CACHE_FILE))
+        {
+            TakaroNameCacheData data = new TakaroNameCacheData;
+            JsonFileLoader<TakaroNameCacheData>.JsonLoadFile(CACHE_FILE, data);
+            int count = 0;
+            if (data.entries) count = data.entries.Count();
+            for (int i = 0; i < count; i++)
+            {
+                TakaroNameEntry e = data.entries[i];
+                if (e && e.steamId != "" && e.name != "")
+                    s_Names.Set(e.steamId, e.name);
+            }
+        }
+        s_Loaded = true;
+    }
+
+    static void Save()
+    {
+        if (!s_Names) return;
+        TakaroNameCacheData data = new TakaroNameCacheData;
+        for (int i = 0; i < s_Names.Count(); i++)
+        {
+            TakaroNameEntry e = new TakaroNameEntry;
+            e.steamId = s_Names.GetKey(i);
+            e.name = s_Names.GetElement(i);
+            data.entries.Insert(e);
+        }
+        JsonFileLoader<TakaroNameCacheData>.JsonSaveFile(CACHE_FILE, data);
+    }
+
+    // DayZ default-name patterns we never want to ship to Takaro.
+    static bool IsBogus(string name)
+    {
+        if (name == "" || name == "Survivor") return true;
+        // "Survivor (2)", "Survivor (3)", ... when multiple unauthenticated
+        // sessions collide.
+        if (name.IndexOf("Survivor (") == 0) return true;
+        return false;
+    }
+
+    // Given a steam64 and the raw name DayZ reports, return the name we
+    // should send to Takaro. Real names update the on-disk cache; bogus
+    // names get swapped for the cached real name when one is known.
+    static string Resolve(string steam64, string raw)
+    {
+        EnsureLoaded();
+        if (steam64 == "") return raw;
+
+        if (!IsBogus(raw))
+        {
+            string current = "";
+            if (s_Names.Contains(steam64)) current = s_Names.Get(steam64);
+            if (current != raw)
+            {
+                s_Names.Set(steam64, raw);
+                Save();
+            }
+            return raw;
+        }
+
+        if (s_Names.Contains(steam64))
+            return s_Names.Get(steam64);
+        return raw;
+    }
+}

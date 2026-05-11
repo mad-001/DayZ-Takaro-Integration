@@ -119,7 +119,7 @@ class TakaroEventFactory
         string bisid = id.GetId();
         int eqIdx = bisid.IndexOf("=");
         if (eqIdx >= 0) bisid = bisid.Substring(0, eqIdx);
-        string name = Safe(id.GetName());
+        string name = Safe(TakaroNameCache.Resolve(sid, id.GetName()));
         string q = "\"";
         string s = "{" + q + "gameId" + q + ":" + q + sid + q;
         s += "," + q + "name" + q + ":" + q + name + q;
@@ -175,12 +175,15 @@ class TakaroEventFactory
         if (id)
         {
             sid = id.GetPlainId();
-            name = Safe(id.GetName());
+            name = id.GetName();
             ping = id.GetPingAct();
         }
         if (sid == "") sid = cachedSteam;
-        if (name == "") name = Safe(cachedName);
+        if (name == "") name = cachedName;
         if (sid == "") sid = bis;
+        // Swap "Survivor"/"Survivor (N)" for the persistent real name once
+        // we have a steam64 to key on.
+        name = Safe(TakaroNameCache.Resolve(sid, name));
 
         string q = "\"";
         string s = "{" + q + "type" + q + ":" + q + "player-disconnected" + q;

@@ -9,7 +9,7 @@
 
 class TakaroBridge
 {
-    static const string VERSION = "0.1.8";
+    static const string VERSION = "0.1.13";
 
     ref TakaroHttpClient m_Http;
     ref TakaroEventQueue m_Queue;
@@ -136,12 +136,14 @@ class TakaroBridge
         TakaroLog.Debug("event: player-connected " + identity.GetName());
 
         // Cache identity bits so disconnect can re-emit the same gameId/name
-        // even when PlayerIdentity is null at logout time.
+        // even when PlayerIdentity is null at logout time. Resolve the name
+        // through TakaroNameCache so a bogus "Survivor" doesn't poison the
+        // session cache when the persistent cache has the real name.
         string bisKey = identity.GetId();
         int eqIdx = bisKey.IndexOf("=");
         if (eqIdx >= 0) bisKey = bisKey.Substring(0, eqIdx);
         m_BisToSteam.Set(bisKey, identity.GetPlainId());
-        m_BisToName.Set(bisKey, identity.GetName());
+        m_BisToName.Set(bisKey, TakaroNameCache.Resolve(identity.GetPlainId(), identity.GetName()));
     }
 
     // identity + uid come straight from MissionServer.PlayerDisconnected;
