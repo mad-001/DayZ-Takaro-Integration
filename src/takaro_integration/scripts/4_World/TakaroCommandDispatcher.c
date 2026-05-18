@@ -980,9 +980,9 @@ class TakaroCommandDispatcher
         DisconnectAllAndExit();
     }
 
-    // Walks CfgVehicles and returns spawnable items as IItemDTO[]. Filters by
-    // scope (>=1 = inventory item or world-spawnable). Cap at MAX_LIST_ITEMS
-    // so we don't ship a 30k-entry payload over WS.
+    // Walks CfgVehicles + CfgMagazines and returns spawnable items as
+    // IItemDTO[]. Filters by scope (>=1 = inventory item or world-spawnable).
+    // Cap at MAX_LIST_ITEMS so we don't ship a 30k-entry payload over WS.
     void HandleListItems(TakaroOperation op)
     {
         // Modded DayZ servers (Expansion + BBP + DDA + PvZmoD + …) push
@@ -991,37 +991,72 @@ class TakaroCommandDispatcher
         // that's why vanilla Hatchet never made it into Takaro's items
         // list while early-letter mod props (`bldr_prop_*`) did.
         const int MAX_LIST_ITEMS = 50000;
-        const string ROOT = "CfgVehicles";
-        int count = GetGame().ConfigGetChildrenCount(ROOT);
         string json = "[";
         bool first = true;
         int emitted = 0;
-        for (int i = 0; i < count && emitted < MAX_LIST_ITEMS; i++)
+
+        // Pass 1: CfgVehicles — weapons, gear, tools, food, ammo boxes.
+        const string ROOT_V = "CfgVehicles";
+        int countV = GetGame().ConfigGetChildrenCount(ROOT_V);
+        for (int i = 0; i < countV && emitted < MAX_LIST_ITEMS; i++)
         {
             string cls;
-            GetGame().ConfigGetChildName(ROOT, i, cls);
+            GetGame().ConfigGetChildName(ROOT_V, i, cls);
             if (cls == "") continue;
-            string base = ROOT + " " + cls + " ";
-            int scope = GetGame().ConfigGetInt(base + "scope");
-            if (scope < 1) continue;
+            // Skip mod base-building props (`bldr_prop_*`). These are
+            // un-interactable decoration entities — some still inherit
+            // Inventory_Base so the IsKindOf filter alone doesn't catch them.
+            if (cls.IndexOf("bldr_prop_") == 0) continue;
+            string baseV = ROOT_V + " " + cls + " ";
+            int scopeV = GetGame().ConfigGetInt(baseV + "scope");
+            if (scopeV < 1) continue;
             // Player-pickupable items inherit from Inventory_Base. Skip
             // everything else: vehicles (Car/Truck), buildings/houses, AI
-            // (ZombieBase/AnimalBase), and mod props like `bldr_prop_*`
-            // that spawn as un-interactable world entities.
+            // (ZombieBase/AnimalBase).
             if (!GetGame().IsKindOf(cls, "Inventory_Base")) continue;
-            string display = "";
-            GetGame().ConfigGetText(base + "displayName", display);
-            if (display == "") display = cls;
-            display = JsonSafeString(display);
+            string displayV = "";
+            GetGame().ConfigGetText(baseV + "displayName", displayV);
+            if (displayV == "") displayV = cls;
+            displayV = JsonSafeString(displayV);
             if (!first) json += ",";
             first = false;
-            string listEntry = "{" + Quote("name") + ":" + Quote(display);
-            listEntry += "," + Quote("code") + ":" + Quote(cls);
-            listEntry += "," + Quote("amount") + ":1";
-            listEntry += "," + Quote("quality") + ":" + Quote("") + "}";
-            json += listEntry;
+            string entryV = "{" + Quote("name") + ":" + Quote(displayV);
+            entryV += "," + Quote("code") + ":" + Quote(cls);
+            entryV += "," + Quote("amount") + ":1";
+            entryV += "," + Quote("quality") + ":" + Quote("") + "}";
+            json += entryV;
             emitted++;
         }
+
+        // Pass 2: CfgMagazines — ammo piles (`Ammo_556x45`) and magazines
+        // (`Mag_STANAG_30Rnd`). These live in a SEPARATE config root from
+        // CfgVehicles, which is why no real ammo ever showed up in Takaro's
+        // item list — only the modded `bldr_prop_AmmoBox_*` props did.
+        const string ROOT_M = "CfgMagazines";
+        int countM = GetGame().ConfigGetChildrenCount(ROOT_M);
+        for (int m = 0; m < countM && emitted < MAX_LIST_ITEMS; m++)
+        {
+            string mcls;
+            GetGame().ConfigGetChildName(ROOT_M, m, mcls);
+            if (mcls == "") continue;
+            if (mcls.IndexOf("bldr_prop_") == 0) continue;
+            string baseM = ROOT_M + " " + mcls + " ";
+            int scopeM = GetGame().ConfigGetInt(baseM + "scope");
+            if (scopeM < 1) continue;
+            string displayM = "";
+            GetGame().ConfigGetText(baseM + "displayName", displayM);
+            if (displayM == "") displayM = mcls;
+            displayM = JsonSafeString(displayM);
+            if (!first) json += ",";
+            first = false;
+            string entryM = "{" + Quote("name") + ":" + Quote(displayM);
+            entryM += "," + Quote("code") + ":" + Quote(mcls);
+            entryM += "," + Quote("amount") + ":1";
+            entryM += "," + Quote("quality") + ":" + Quote("") + "}";
+            json += entryM;
+            emitted++;
+        }
+
         json += "]";
         TakaroLog.Info("listItems: " + emitted.ToString() + " items returned");
         ReplyOk(op, json);
