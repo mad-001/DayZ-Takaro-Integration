@@ -3,123 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DayZ-Takaro Integration</title>
+    <title>DayZ Server Manager - Takaro</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%8E%AE</text></svg>">
+    <meta name="description" content="Manage your DayZ dedicated server with Takaro — players, server control, teleports, and more. A free DayZ Server Manager.">
+    <meta property="og:title" content="DayZ Server Manager - Takaro">
+    <meta property="og:description" content="Manage your DayZ dedicated server with Takaro — players, server control, teleports, and more. A free DayZ Server Manager.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mad-001.github.io/DayZ-Takaro-Integration/">
+    <meta property="og:image" content="https://mad-001.github.io/DayZ-Takaro-Integration/hero.jpg">
+    <meta name="twitter:card" content="summary_large_image">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #e0e0e0;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: rgba(30, 30, 40, 0.95);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        }
-        h1 {
-            font-size: 2.5em;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, #a78bfa 0%, #c4b5fd 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        h2 {
-            font-size: 1.6em;
-            margin-top: 35px;
-            margin-bottom: 14px;
-            color: #a78bfa;
-            border-bottom: 2px solid rgba(167, 139, 250, 0.3);
-            padding-bottom: 8px;
-        }
-        h3 {
-            font-size: 1.2em;
-            margin-top: 22px;
-            margin-bottom: 10px;
-            color: #c4b5fd;
-        }
-        p { margin-bottom: 12px; line-height: 1.7; }
-        .download-btn {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 14px 28px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: bold;
-            margin: 15px 10px 25px 0;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-        .download-btn:hover { transform: translateY(-2px); }
-        code {
-            background: rgba(0, 0, 0, 0.3);
-            color: #fbbf24;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-        }
-        pre {
-            background: rgba(0, 0, 0, 0.4);
-            padding: 16px;
-            border-radius: 8px;
-            overflow-x: auto;
-            margin: 12px 0;
-            border: 1px solid rgba(167, 139, 250, 0.2);
-        }
-        pre code { background: none; padding: 0; color: #e0e0e0; }
-        ol, ul { margin: 12px 0 12px 28px; }
-        li { margin-bottom: 8px; line-height: 1.6; }
-        a { color: #a78bfa; text-decoration: none; }
-        a:hover { color: #c4b5fd; text-decoration: underline; }
-        .info-box {
-            background: rgba(59, 130, 246, 0.1);
-            border-left: 4px solid #3b82f6;
-            padding: 14px;
-            margin: 18px 0;
-            border-radius: 5px;
-        }
-        .warning-box {
-            background: rgba(239, 68, 68, 0.1);
-            border-left: 4px solid #ef4444;
-            padding: 14px;
-            margin: 18px 0;
-            border-radius: 5px;
-        }
-        .note-box {
-            background: rgba(251, 191, 36, 0.1);
-            border-left: 4px solid #fbbf24;
-            padding: 14px;
-            margin: 18px 0;
-            border-radius: 5px;
-        }
-        table { width: 100%; border-collapse: collapse; margin: 14px 0; }
-        th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(167, 139, 250, 0.2); }
-        th { color: #c4b5fd; font-size: 0.95em; }
-        td code { font-size: 0.85em; }
+        :root { --bg:#0f1013; --text:#e4e7ee; --heading:#fff; --muted:#9aa1b1; --border:#262a33; --accent:#58a6ff; --code-bg:#1c1f26; --pre-bg:#17191f; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; -webkit-font-smoothing:antialiased; }
+        .page { display:flex; gap:64px; max-width:1500px; margin:0 auto; padding:0 48px; }
+        .content { flex:1; min-width:0; padding:32px 0 96px; }
+        .toc { width:220px; flex-shrink:0; position:sticky; top:0; align-self:flex-start; padding-top:48px; }
+        .toc a { display:block; color:var(--muted); padding:6px 0; font-size:.92rem; }
+        .toc a:hover { color:var(--text); text-decoration:none; }
+        .hero { position:relative; min-height:300px; border-radius:12px; overflow:hidden; background-image:url('hero.jpg'); background-size:cover; background-position:center; display:flex; align-items:flex-end; margin-bottom:28px; }
+        .hero::after { content:''; position:absolute; inset:0; background:linear-gradient(to top, rgba(15,16,20,.95) 0%, rgba(15,16,20,.5) 50%, rgba(15,16,20,.2) 100%); }
+        .hero-inner { position:relative; z-index:1; padding:32px; }
+        h1 { font-size:2.6rem; font-weight:800; letter-spacing:-.02em; color:#fff; margin-bottom:10px; }
+        .subtitle { font-size:1.2rem; color:#dfe3ea; max-width:620px; }
+        h2 { font-size:1.5rem; font-weight:700; margin-top:48px; margin-bottom:16px; padding-bottom:8px; border-bottom:1px solid var(--border); color:var(--heading); scroll-margin-top:20px; }
+        h3 { font-size:1.15rem; font-weight:600; margin-top:26px; margin-bottom:8px; color:var(--heading); }
+        p { margin-bottom:14px; }
+        a { color:var(--accent); text-decoration:none; }
+        a:hover { text-decoration:underline; }
+        a code, a strong { color:var(--accent); }
+        strong { color:#e6e9ef; font-weight:600; }
+        .download-btn { display:inline-block; background:var(--accent); color:#16181d; padding:11px 24px; border-radius:8px; font-weight:700; margin:8px 0 4px; }
+        .download-btn:hover { filter:brightness(1.1); text-decoration:none; }
+        code { background:var(--code-bg); color:#e3b7ff; padding:.15em .4em; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.86em; }
+        pre { background:var(--pre-bg); border:1px solid var(--border); border-radius:8px; padding:14px 16px; overflow-x:auto; margin:14px 0; }
+        pre code { background:none; padding:0; color:#d7dbe3; font-size:.85em; }
+        ul, ol { margin:12px 0 14px 24px; }
+        li { margin-bottom:6px; }
+        .info-box, .warning-box, .note { padding:12px 16px; border-radius:8px; margin:18px 0; border-left:4px solid var(--border); }
+        .info-box { border-left-color:var(--accent); background:#151a22; }
+        .warning-box { border-left-color:#ef4444; background:#241a1c; }
+        .note { border-left-color:#f59e0b; background:#241f18; }
+        @media (max-width:900px){ .page{display:block;padding:0 20px;} .toc{display:none;} }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>DayZ-Takaro Integration</h1>
-        <p>Connect your DayZ server to <a href="https://takaro.io/pricing/?via=zach550">Takaro</a> for Discord chat, server announcements, and admin control through the Takaro dashboard.</p>
+    <div class="page">
+        <main class="content">
+            <div class="hero">
+                <div class="hero-inner">
+                    <h1>DayZ Server Manager - Takaro</h1>
+                    <p class="subtitle">Manage your DayZ dedicated server with Takaro — players, server control, teleports, and more. A free DayZ Server Manager.</p>
+                </div>
+            </div>
+<p>Connect your DayZ server to <a href="https://takaro.io/pricing/?via=zach550">Takaro</a> for Discord chat, server announcements, and admin control through the Takaro dashboard.</p>
 
         <a href="https://takaro.io/pricing/?via=zach550" class="download-btn">Sign Up for Takaro</a>
         <a href="https://github.com/mad-001/DayZ-Takaro-Integration/releases/latest" class="download-btn">Download Latest Release</a>
 
-        <h2>Step 1 — Get a Takaro Account</h2>
+        <h2 id="sec1">Step 1 — Get a Takaro Account</h2>
         <ol>
             <li>Go to <a href="https://takaro.io/pricing/?via=zach550">takaro.io/pricing</a> and pick a plan.</li>
             <li>Sign up with the email you want admin notifications sent to.</li>
             <li>Confirm your email and log into the Takaro dashboard at <code>app.takaro.io</code>.</li>
         </ol>
 
-        <h2>Step 2 — Register Your DayZ Server in Takaro</h2>
+        <h2 id="sec2">Step 2 — Register Your DayZ Server in Takaro</h2>
         <ol>
             <li>In the Takaro dashboard, click <strong>Create Game Server</strong>.</li>
             <li>Name the server (this becomes your <strong>Identity Token</strong>).</li>
@@ -127,13 +76,13 @@
             <li>Takaro will generate a <strong>Registration Token</strong>. Copy it — you'll paste it into the config file in Step 4.</li>
         </ol>
 
-        <h2>Step 3 — Subscribe to Required Workshop Mods</h2>
+        <h2 id="sec3">Step 3 — Subscribe to Required Workshop Mods</h2>
         <p>The integration depends on this workshop mod for in-game admin functionality:</p>
         <ul>
             <li><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2018466091"><strong>VPPAdminTools</strong></a> — Vex's Persistent Admin Tools (in-game admin map, spectate, ban management, kick UI). Subscribe to it on Steam Workshop and install via your normal mod-update flow (workshop sync, SteamCMD, or DayZ Server Launcher).</li>
         </ul>
 
-        <h2>Step 4 — Install the Bridge Files</h2>
+        <h2 id="sec4">Step 4 — Install the Bridge Files</h2>
 
         <div class="info-box">
             <strong>Easy install (recommended).</strong> Download the latest release ZIP, extract it anywhere, then right-click <code>install.ps1</code> → <strong>Run with PowerShell</strong>. The installer pops up the token instructions, prompts you for the registration token + your DayZ server folder, and copies everything into place. When it finishes, jump to <a href="#step-launch">Step 7</a> (skip the manual Step 4 and Step 5 below).
@@ -152,7 +101,7 @@
             <strong>About <code>winmm.dll</code>:</strong> DayZ Server has no plugin loader, so the bridge piggybacks on the WINMM import. The fake <code>winmm.dll</code> in the server folder loads first, calls <code>LoadLibrary</code> on <code>dayz_takaro.dll</code>, and forwards every WINMM function to <code>C:\Windows\System32\winmm.dll</code>. Don't replace your system <code>winmm.dll</code> — only the one in your server folder.
         </div>
 
-        <h2>Step 5 — Configure the Bridge (<code>takaro_config.txt</code>)</h2>
+        <h2 id="sec5">Step 5 — Configure the Bridge (<code>takaro_config.txt</code>)</h2>
         <p>(The easy installer in Step 4 already wrote this file with your token. Skip ahead unless you want to tweak it.)</p>
         <p>Create a file named <code>takaro_config.txt</code> in your DayZ server root (next to <code>DayZServer_x64.exe</code>) with the following content:</p>
         <pre><code>registrationToken=YOUR-REGISTRATION-TOKEN-FROM-TAKARO
@@ -169,7 +118,7 @@ serverName=My DayZ Server</code></pre>
             <tr><td><code>forwardLogLines</code></td><td>Optional</td><td>Set to <code>0</code> to stop tailing the RPT and forwarding lines as <code>log</code> events to Takaro. Default <code>1</code>.</td></tr>
         </table>
 
-        <h2>Step 6 — Configure BattlEye RCON</h2>
+        <h2 id="sec6">Step 6 — Configure BattlEye RCON</h2>
         <p>Takaro routes admin commands (chat broadcast, kick, ban, players list) through BattlEye RCON. Setting this up correctly is the single most common source of install issues, so go slow.</p>
 
         <h3>6a. Edit <code>battleye\beserver_x64.cfg</code></h3>
@@ -195,7 +144,7 @@ RestrictRCon 0</code></pre>
 
         <p>Whenever you change the cfg, copy it to <strong>both</strong> locations.</p>
 
-        <h2 id="step-launch">Step 7 — Launch the Server</h2>
+        <h2 id="sec7" id="step-launch">Step 7 — Launch the Server</h2>
         <p>Use this <code>start_server.bat</code> as a starting template (place it next to <code>DayZServer_x64.exe</code>). Add any of your other workshop mods to the <code>-mod=</code> list as you normally would:</p>
         <pre><code>@echo off
 cd /d "C:\path\to\your\dayz\server"
@@ -225,7 +174,7 @@ exit</code></pre>
 
         <p>Double-click <code>start_server.bat</code> (or run it from a terminal). DayZ Server starts in a new console window.</p>
 
-        <h2>Step 8 — Verify It's Working</h2>
+        <h2 id="sec8">Step 8 — Verify It's Working</h2>
         <p>After about 30–60 seconds the bridge should be fully connected. Three checkpoints:</p>
 
         <h3>8a. Bridge log</h3>
@@ -247,10 +196,10 @@ SCRIPT       : [Takaro] Bridge attached to MissionServer.OnInit</code></pre>
         <h3>8c. Takaro dashboard</h3>
         <p>Refresh your server's page in the Takaro dashboard. The <strong>Reachable</strong> indicator should turn green within a few seconds. Connect/disconnect a test player; the events should appear in Takaro's events stream within ~2 seconds.</p>
 
-        <h2>Player Chat Commands</h2>
+        <h2 id="sec9">Player Chat Commands</h2>
         <p>Anything a player types in chat starting with <code>/</code> (e.g. <code>/visit Mad</code>) is intercepted on the server and forwarded to Takaro as a <code>chat-message</code> event. The chat broadcast is suppressed: the player who typed it doesn't see it on their screen, and other players don't see it either — only Takaro receives it. Bind these to Takaro module commands in the dashboard.</p>
 
-        <h2>Available Commands</h2>
+        <h2 id="sec10">Available Commands</h2>
         <p>These run via Takaro's execute-command action — either the dashboard's command box or any Takaro module that calls <code>gameServerControllerExecuteCommand</code>:</p>
         <pre><code>say &lt;text&gt;                          - broadcast to all players (yellow admin chat)
 help                                - list every available command
@@ -264,7 +213,7 @@ players                             - list every online player (name + gameId)
 announce &lt;message&gt;                  - center-screen banner to all players
 announce &lt;title&gt; | &lt;message&gt;        - banner with custom title</code></pre>
 
-        <h2>Troubleshooting</h2>
+        <h2 id="sec11">Troubleshooting</h2>
 
         <h3>Bridge log shows <code>recv error 10054</code> on a loop</h3>
         <ol>
@@ -289,6 +238,20 @@ announce &lt;title&gt; | &lt;message&gt;        - banner with custom title</code
 
         <h3>Anything else</h3>
         <p>Open an issue at <a href="https://github.com/mad-001/DayZ-Takaro-Integration/issues">github.com/mad-001/DayZ-Takaro-Integration</a> with both <code>logs\TakaroLogs\dayz-takaro-*.log</code> and <code>profiles\script_*.log</code> attached.</p>
+        </main>
+        <nav class="toc">
+            <a href="#sec1">Step 1 — Get a Takaro Account</a>
+            <a href="#sec2">Step 2 — Register Your DayZ Server in Takaro</a>
+            <a href="#sec3">Step 3 — Subscribe to Required Workshop Mods</a>
+            <a href="#sec4">Step 4 — Install the Bridge Files</a>
+            <a href="#sec5">Step 5 — Configure the Bridge (takaro_config.txt)</a>
+            <a href="#sec6">Step 6 — Configure BattlEye RCON</a>
+            <a href="#sec7">Step 7 — Launch the Server</a>
+            <a href="#sec8">Step 8 — Verify It&#x27;s Working</a>
+            <a href="#sec9">Player Chat Commands</a>
+            <a href="#sec10">Available Commands</a>
+            <a href="#sec11">Troubleshooting</a>
+        </nav>
     </div>
 </body>
 </html>
