@@ -9,7 +9,7 @@
 
 class TakaroBridge
 {
-    static const string VERSION = "0.2.0-takaro";
+    static const string VERSION = "0.2.0";
 
     ref TakaroHttpClient m_Http;
     ref TakaroEventQueue m_Queue;
