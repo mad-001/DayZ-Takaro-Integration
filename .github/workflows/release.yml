@@ -1,0 +1,102 @@
+# Builds the DLLs (MSVC) and the PBO on every push to main. Creates a GitHub release
+# (tag = "v" + the CfgMods version in src/takaro_integration/config.cpp) only when that
+# tag does not exist yet. To ship a release: bump `version = "x.y.z";` in config.cpp in
+# your PR and merge it.
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from config.cpp
+        id: ver
+        shell: bash
+        run: |
+          v=$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([0-9][0-9.]*)".*/\1/p' src/takaro_integration/config.cpp | head -1)
+          [ -n "$v" ] || { echo "no version found in config.cpp" >&2; exit 1; }
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether tag already exists
+        id: check
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build dayz_takaro.dll and winmm.dll
+        shell: cmd
+        working-directory: DayZ-DLL
+        run: |
+          cl.exe /nologo /LD /MD /O2 /DNDEBUG /std:c++17 /EHsc dayz_takaro.cpp /link /OUT:dayz_takaro.dll winhttp.lib ws2_32.lib
+          if not exist dayz_takaro.dll exit /b 2
+          cl.exe /nologo /LD /MD /O2 /DNDEBUG /std:c++17 /EHsc winmm_proxy.cpp /link /OUT:winmm.dll
+          if not exist winmm.dll exit /b 3
+
+      - name: Pack TakaroIntegration.pbo
+        shell: bash
+        run: |
+          mkdir -p "@TakaroIntegration/Addons"
+          python scripts/pack_pbo.py src/takaro_integration "@TakaroIntegration/Addons/TakaroIntegration.pbo" --prefix TakaroIntegration
+
+      - name: Stage release layout
+        shell: bash
+        run: |
+          mkdir -p stage/DLLs "stage/@TakaroIntegration/Addons" release
+          cp install.ps1 stage/
+          cp DayZ-DLL/dayz_takaro.dll DayZ-DLL/winmm.dll stage/DLLs/
+          cp "@TakaroIntegration/mod.cpp" "@TakaroIntegration/meta.cpp" "stage/@TakaroIntegration/"
+          cp "@TakaroIntegration/Addons/TakaroIntegration.pbo" "stage/@TakaroIntegration/Addons/"
+          cp "@TakaroIntegration/Addons/TakaroIntegration.pbo" release/
+
+      - name: Zip release
+        shell: pwsh
+        run: Compress-Archive -Path stage\* -DestinationPath "release\DayZ-Takaro-Integration-${{ steps.ver.outputs.tag }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: needs.build.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release
+      - name: Create release ${{ needs.build.outputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.build.outputs.tag }}" \
+            --title "${{ needs.build.outputs.tag }}" \
+            --generate-notes \
+            release/*
